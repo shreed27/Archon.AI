@@ -29,10 +29,10 @@ Think of it as:
 
 ```bash
 # 1. Download System
-./archon download
+./bin/archon download
 
 # 2. Initialize Neural Engine
-./archon start
+./bin/archon start
 ```
 
 ## Architecture
