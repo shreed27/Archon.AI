@@ -109,40 +109,23 @@ class ArchonUI:
             )
         )
 
-        # Cyberpunk Input Box
-        # We use a Heavy box with a Neon border
-        console.print(
-            Panel(
-                Text(" " * 60, style="dim white"),  # Empty space for input area height
-                box=box.HEAVY,
-                border_style="bold white",  # White Border
-                title="[bold color(39)] ⌨️  NEURAL INPUT [/bold color(39)]",
-                title_align="left",
-                subtitle="[bold color(226)] EXECUTE [/bold color(226)]",
-                subtitle_align="right",
-                expand=True,
-            )
+        # Cyberpunk Input Separator
+        console.rule("[bold color(39)] NEURAL INPUT [/bold color(39)]", style="bold white")
+
+        # Status Line (was Footer)
+        # We put this ABOVE the prompt now for stability
+        # Format: [Path] [Sandbox] [Model]
+
+        status_text = Text.assemble(
+            (f" 📂 {project_path.name} ", "bold color(39)"),
+            (" :: ", "dim white"),
+            (" no sandbox ", "bold white"),
+            (" :: ", "dim white"),
+            (f" 🤖 {model_name} ", "bold white"),
         )
 
-        # Footer Bar - Clean & Minimal
-        footer_table = Table.grid(expand=True)
-        footer_table.add_column(justify="left", ratio=1)
-        footer_table.add_column(justify="center", ratio=1)  # Restore centered Sandbox status
-        footer_table.add_column(justify="right", ratio=1)
-
-        # Path formatting
-        try:
-            rel_path = f"~/{project_path.relative_to(Path.home())}"
-        except ValueError:
-            rel_path = str(project_path)
-
-        footer_table.add_row(
-            Text(f" 📂 {rel_path} ", style="bold white"),  # White Text
-            Text(" no sandbox ", style="bold white"),  # White Text
-            Text(f" 🤖 {model_name} ", style="bold white"),  # White Text
-        )
-
-        console.print(footer_table)
+        console.print(status_text, justify="right")
+        console.print("")  # Spacing for prompt
 
     @staticmethod
     def render_scrolling_prompt(project_path: Path, file_count: int = 0):
