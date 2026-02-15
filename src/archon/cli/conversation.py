@@ -160,31 +160,14 @@ class ConversationalInterface:
             # Render the UI Layout
             ArchonUI.render_input_look(project_path, "Auto (Gemini 2.5)", file_count)
 
-            # Move cursor UP to the input box
-            # 1 line for Footer
-            # 1 line for Panel Bottom Border
-            # 1 line for Panel Padding/Content (approx)
-            # We want to be inside the box.
-            # \033[3A moves up 3 lines.
-
-            # Position cursor for input
-            print("\033[3A", end="", flush=True)
-            # Move right to align with "> " inside the box (if we printed it)
-            # ArchonUI prints: "> Type your message..." inside the panel.
-            # We want to overwrite that or type next to it?
-            # User wants to "type in message box".
-            # We'll just print a prompt effectively overwriting the placeholder text line.
-
-            console.print("  > ", end="")  # Indent inside box
-
+            # Robust Input Prompt (No fragile cursor jumps)
             try:
-                user_input = input("")  # Use standard input to keep it simple with cursor
+                # Using a visually distinct prompt that matches the theme
+                user_input = Prompt.ask(" [bold white]>[/bold white]")
             except KeyboardInterrupt:
                 break
 
-            # Move cursor back down below the footer to print response
-            print("\033[3B", end="", flush=True)
-            console.print("")  # Newline
+            console.print("")  # Separator for response
 
             if not user_input.strip():
                 continue
@@ -203,25 +186,71 @@ class ConversationalInterface:
                 Prompt.ask("Press Enter to continue")
                 continue
 
-            # Process input (Standard "Coming Soon" with Rizz)
-            await self._respond_with_rizz()
+            # Process input with simulated Manager
+            await self._handle_user_request(user_input)
 
-    async def _respond_with_rizz(self):
-        """Standard placeholder response."""
+    async def _handle_user_request(self, user_input: str):
+        """
+        Simulated Manager response logic.
+        """
         from rich.console import Console
         from rich.panel import Panel
+        from rich.table import Table
+        import asyncio
 
         c = Console()
-        c.print("")
-        c.print(
-            Panel(
-                "[bold color(201)]Yo, hold up! 🛑[/bold color(201)]\n\nI'm still in the lab getting my neural pathways aligned.\nThis feature is [bold cyan]coming soon[/bold cyan] to take your project to a production-level masterpiece.\n\n[italic]Stay tuned! 🚀✨[/italic]",
-                title="Construction Zone",
-                border_style="color(63)",
+
+        # 1. Thinking Animation
+        with Live(
+            Spinner(
+                "dots",
+                text="[bold green]Manager analyzing request...[/bold green]",
+                style="bold green",
+            ),
+            console=c,
+            transient=True,
+        ):
+            await asyncio.sleep(1.5)  # Simulate thinking
+
+        # 2. Display Manager's Decision
+        # Simulate different responses based on input
+        plan_panel = None
+
+        if "todo" in user_input.lower() or "app" in user_input.lower():
+            # Example Plan for "Todo App"
+            grid = Table.grid(expand=True)
+            grid.add_column()
+            grid.add_row("[bold cyan]AGENTS SELECTED:[/bold cyan]")
+            grid.add_row("  • [bold magenta]Architect[/bold magenta] (Structure & Design)")
+            grid.add_row("  • [bold blue]Frontend Dev[/bold blue] (React/Next.js)")
+            grid.add_row("  • [bold yellow]Backend Dev[/bold yellow] (API/Database)")
+            grid.add_row("")
+            grid.add_row("[bold cyan]GENERATED TASKS:[/bold cyan]")
+            grid.add_row("  1. [white]Initialize Next.js Project[/white]")
+            grid.add_row("  2. [white]Design Schema (SQLite)[/white]")
+            grid.add_row("  3. [white]Implement API Routes[/white]")
+            grid.add_row("  4. [white]Build Frontend Components[/white]")
+
+            plan_panel = Panel(
+                grid,
+                title="[bold green]MANAGER PLAN[/bold green]",
+                border_style="bold green",
+                subtitle="[dim]4 Tasks • 3 Agents[/dim]",
             )
-        )
+        else:
+            # Generic Plan
+            plan_panel = Panel(
+                f"[white]I have analyzed your request: '{user_input}'[/white]\n\n"
+                "[bold cyan]Action:[/bold cyan] Awaiting further specification.\n"
+                "[bold cyan]Status:[/bold cyan] Ready to execute custom logic.",
+                title="[bold green]SYSTEM ACKNOWLEDGED[/bold green]",
+                border_style="bold green",
+            )
+
+        c.print(plan_panel)
         c.print("")
-        # Pause so they can read it before the loop clears the screen
+
+        # Pause before clearing
         Prompt.ask("[dim]Press Enter to continue...[/dim]")
 
     async def _execute_action(self, action: dict):
