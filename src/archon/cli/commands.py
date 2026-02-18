@@ -10,38 +10,78 @@ from rich.prompt import Prompt
 from archon.manager.orchestrator import ManagerOrchestrator
 from archon.cli.conversation import ConversationalInterface
 from archon.cli.ui import ArchonUI, console
+from archon.cli.session_config import SessionConfig
+
+
+async def _build_session(project_path: Path) -> SessionConfig:
+    """
+    Run the interactive startup flow:
+      1. Show header
+      2. Mode picker  (Plan / Fast)
+      3. Model picker
+      4. Return configured SessionConfig
+    """
+    ArchonUI.print_header(project_path.name)
+
+    # ── Step 1: Mode selection ────────────────────────────────────────────────
+    mode = ArchonUI.show_mode_selector()
+
+    # ── Step 2: Model selection ───────────────────────────────────────────────
+    model = ArchonUI.show_model_selector()
+
+    session = SessionConfig(
+        mode=mode,
+        model=model,
+        project_name=project_path.name,
+    )
+
+    console.print(
+        f"\n  [bold color(82)]✓[/bold color(82)] Session configured: "
+        f"[bold color(226)]{session.mode_icon} {session.mode_label}[/bold color(226)]  ·  "
+        f"[bold]{session.model_icon} {session.model_label}[/bold]\n"
+    )
+
+    return session
 
 
 async def start_command(project_path: Path):
     """
     Start new ARCHON session with conversational interface.
+
+    Flow:
+      1. Show header
+      2. Mode picker (Plan / Fast)
+      3. Model picker
+      4. Initialize Manager
+      5. Launch REPL
     """
+    # Interactive startup — mode + model selection
+    session = await _build_session(project_path)
+
     manager = ManagerOrchestrator(str(project_path))
     await manager.initialize()
 
-    # Calculate initial metrics
-    file_count = ArchonUI.get_file_count(project_path)
-
-    # Start conversation loop
-    conversation = ConversationalInterface(manager)
+    conversation = ConversationalInterface(manager, session)
     await conversation.start_repl(project_path)
 
 
 async def resume_command(project_path: Path):
     """
     Resume existing ARCHON session.
+    Still prompts for mode + model since those are per-session preferences.
     """
     archon_dir = project_path / ".archon"
     if not archon_dir.exists():
         console.print("[red]No ARCHON session found. Use 'archon start'.[/red]")
         return
 
+    # Interactive startup — mode + model selection
+    session = await _build_session(project_path)
+
     manager = ManagerOrchestrator(str(project_path))
     await manager.load_state()
 
-    file_count = ArchonUI.get_file_count(project_path)
-
-    conversation = ConversationalInterface(manager)
+    conversation = ConversationalInterface(manager, session)
     console.print("[bold cyan]Manager:[/bold cyan] Session resumed. Ready for instructions.")
     await conversation.start_repl(project_path)
 
