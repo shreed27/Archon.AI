@@ -17,12 +17,31 @@ logger = get_logger(__name__)
 class ModelType(Enum):
     """Available AI models."""
 
+    # OpenAI
     GPT4 = "gpt-4"
     GPT4_TURBO = "gpt-4-turbo"
+    GPT4O = "gpt-4o"
+    GPT4O_MINI = "gpt-4o-mini"
+    O1 = "o1"
+    O3_MINI = "o3-mini"
+
+    # Anthropic
     CLAUDE_OPUS = "claude-3-opus-20240229"
     CLAUDE_SONNET = "claude-3-5-sonnet-20241022"
+    CLAUDE_SONNET_4 = "claude-sonnet-4-5"
+    CLAUDE_SONNET_4_THINKING = "claude-sonnet-4-5-thinking"
+    CLAUDE_SONNET_46 = "claude-sonnet-4-6"
+    CLAUDE_OPUS_46_THINKING = "claude-opus-4-6-thinking"
+
+    # Google
     GEMINI_PRO = "gemini-pro"
     GEMINI_FLASH = "gemini-2.0-flash-exp"
+    GEMINI_25_PRO_HIGH = "gemini-2.5-pro-high"
+    GEMINI_25_PRO_LOW = "gemini-2.5-pro-low"
+    GEMINI_25_FLASH = "gemini-2.5-flash"
+
+    # Open-source / other
+    GPT_OSS_120B = "gpt-oss-120b-medium"
 
 
 @dataclass
