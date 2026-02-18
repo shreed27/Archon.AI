@@ -1,0 +1,4 @@
+#!/bin/bash
+# Simple wrapper to run Archon without installation issues
+export PYTHONPATH=$(pwd)/src
+python -m archon "$@"
