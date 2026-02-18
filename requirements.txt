@@ -8,3 +8,6 @@ networkx
 sqlalchemy
 psutil
 tree-sitter
+pydantic
+python-dotenv
+pyyaml
