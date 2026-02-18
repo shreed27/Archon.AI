@@ -1,0 +1,10 @@
+rich
+openai
+anthropic
+google-generativeai
+aiosqlite
+chromadb
+networkx
+sqlalchemy
+psutil
+tree-sitter
