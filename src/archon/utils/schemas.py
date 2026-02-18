@@ -30,6 +30,10 @@ class AgentType(str, Enum):
     INTEGRATION = "integration"
     DOCUMENTATION = "documentation"
     GIT = "git"
+    DATABASE = "database"
+    PERFORMANCE = "performance"
+    DATA = "data"
+    ARCHITECT = "architect"
 
 
 class Task(BaseModel):
