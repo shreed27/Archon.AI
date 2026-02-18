@@ -12,6 +12,8 @@ from datetime import datetime
 
 from archon.manager.model_router import ModelRouter
 from archon.manager.tool_router import ToolRouter
+from archon.tools.sandbox import ToolSandbox
+from archon.tools.eraser import EraserCLITool
 from archon.manager.task_scheduler import TaskScheduler
 from archon.manager.arbitrator import Arbitrator
 from archon.manager.quality_gate import QualityGate
@@ -44,8 +46,13 @@ class ManagerOrchestrator:
         self.archon_dir = self.project_path / ".archon"
 
         # Core subsystems
+        self.sandbox = ToolSandbox(str(self.project_path))
         self.model_router = ModelRouter()
-        self.tool_router = ToolRouter()
+        self.tool_router = ToolRouter(self.sandbox, self.learning_engine)
+
+        # Register tools
+        self.tool_router.register_tool(EraserCLITool(self.sandbox))
+
         self.task_scheduler = TaskScheduler()
         self.arbitrator = Arbitrator()
         self.quality_gate = QualityGate(str(self.project_path))
@@ -223,11 +230,11 @@ Return JSON format:
         await self.db.update_task_status(task.task_id, TaskStatus.IN_PROGRESS)
 
         # Decision: Tool vs AI
-        tool_decision = await self.tool_router.should_use_tool(task)
+        tool_name = await self.tool_router.select_best_tool(task)
 
-        if tool_decision.use_tool:
-            logger.info(f"Using external tool: {tool_decision.tool.name}")
-            result = await self._execute_with_tool(task, tool_decision.tool)
+        if tool_name:
+            logger.info(f"Using external tool: {tool_name}")
+            result = await self._execute_with_tool(task, tool_name)
         else:
             # Select optimal model
             model = await self.model_router.select_model(task)
@@ -254,26 +261,37 @@ Return JSON format:
 
         return result
 
-    async def _execute_with_tool(self, task: Task, tool) -> TaskResult:
+    async def _execute_with_tool(self, task: Task, tool_name: str) -> TaskResult:
         """Execute task using external CLI tool."""
 
-        from archon.tools.tool_sandbox import ToolSandbox
+        # Prepare input data from task context or description
+        input_data = task.context or {}
+        if not input_data and "dsl" not in input_data:
+            # Basic fallback: pass description as potential DSL if relevant
+            input_data["dsl"] = task.description
 
-        sandbox = ToolSandbox(self.archon_dir / "sandbox")
-        result = await sandbox.execute(tool, task.context)
+        result = await self.tool_router.execute_tool(tool_name, input_data)
 
         # Log tool usage
-        await self.db.log_tool_usage(
-            {
-                "task_id": task.task_id,
-                "tool": tool.name,
-                "success": result.success,
-                "execution_time_ms": result.execution_time_ms,
-                "timestamp": datetime.now(),
-            }
-        )
+        if self.db:
+            await self.db.log_tool_usage(
+                {
+                    "task_id": task.task_id,
+                    "tool": tool_name,
+                    "success": result.success,
+                    "execution_time_ms": result.execution_time_ms,
+                    "timestamp": datetime.now(),
+                }
+            )
 
-        return result
+        return TaskResult(
+            success=result.success,
+            output=result.output or result.error,
+            execution_time_ms=result.execution_time_ms,
+            tool_used=tool_name,
+            quality_score=0.9 if result.success else 0.0,
+            model_used=None,
+        )
 
     async def _execute_with_agent(self, task: Task, model) -> TaskResult:
         """Execute task using AI agent."""
