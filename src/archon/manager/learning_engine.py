@@ -8,13 +8,25 @@ from typing import Dict, List, Optional
 from datetime import datetime
 import hashlib
 
+try:
+    import chromadb
+    from chromadb.config import Settings
+
+    CHROMA_AVAILABLE = True
+except ImportError:
+    chromadb = None
+    CHROMA_AVAILABLE = False
+
 from archon.utils.schemas import Task, TaskResult, AgentMetrics
+from archon.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class LearningEngine:
     """
     Tracks performance across projects and improves routing decisions.
-    Uses embeddings to find similar past tasks and their outcomes.
+    Uses Vector Memory (ChromaDB) to find semantically similar past tasks and outcomes.
     """
 
     def __init__(self):
@@ -23,6 +35,10 @@ class LearningEngine:
         self.outcomes_file: Optional[Path] = None
         self.agent_metrics: Dict[str, AgentMetrics] = {}
         self.task_outcomes: List[Dict] = []
+
+        # Vector DB
+        self.chroma_client = None
+        self.collection = None
 
     async def initialize(self, archon_dir: Path):
         """
@@ -36,6 +52,24 @@ class LearningEngine:
 
         self.metrics_file = self.archon_dir / "agent_metrics.json"
         self.outcomes_file = self.archon_dir / "task_outcomes.json"
+
+        # Initialize ChromaDB
+        memory_dir = self.archon_dir / "memory"
+        memory_dir.mkdir(exist_ok=True)
+
+        if CHROMA_AVAILABLE:
+            try:
+                self.chroma_client = chromadb.PersistentClient(path=str(memory_dir))
+
+                self.collection = self.chroma_client.get_or_create_collection(
+                    name="task_history", metadata={"hnsw:space": "cosine"}
+                )
+                logger.info("Vector Memory (ChromaDB) initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize Vector Memory: {e}")
+                self.chroma_client = None
+        else:
+            logger.warning("ChromaDB not installed. Vector Memory disabled.")
 
         # Load existing data
         await self._load_metrics()
@@ -54,12 +88,14 @@ class LearningEngine:
             "description": task.description,
             "description_hash": self._hash_description(task.description),
             "agent_type": task.agent_type.value,
-            "model_used": result.model_used,
-            "tool_used": result.tool_used,
+            "model_used": result.model_used or "unknown",
+            "tool_used": result.tool_used or "none",
             "success": result.success,
             "quality_score": result.quality_score,
             "execution_time_ms": result.execution_time_ms,
             "timestamp": datetime.now().isoformat(),
+            # Store a summary for embedding
+            "context_summary": f"Task: {task.description}. Agent: {task.agent_type.value}. Success: {result.success}",
         }
 
         self.task_outcomes.append(outcome)
@@ -68,9 +104,29 @@ class LearningEngine:
         # Update agent metrics
         await self._update_agent_metrics(task, result)
 
+        # Add to Vector Memory
+        if self.collection:
+            try:
+                self.collection.add(
+                    documents=[outcome["context_summary"]],
+                    metadatas=[
+                        {
+                            "task_id": task.task_id,
+                            "agent_type": task.agent_type.value,
+                            "success": str(result.success),
+                            "quality_score": result.quality_score,
+                            "model_used": outcome["model_used"],
+                            "timestamp": outcome["timestamp"],
+                        }
+                    ],
+                    ids=[task.task_id],
+                )
+            except Exception as e:
+                logger.error(f"Failed to add memory to Vector DB: {e}")
+
     async def get_similar_tasks(self, task_description: str, limit: int = 5) -> List[Dict]:
         """
-        Find similar tasks from history.
+        Find similar tasks from history using Semantic Search.
 
         Args:
             task_description: Description of current task
@@ -79,33 +135,45 @@ class LearningEngine:
         Returns:
             List of similar task outcomes
         """
-        # Simple hash-based similarity for now
-        # In production, would use embeddings and vector search
-        current_hash = self._hash_description(task_description)
+        if not self.collection:
+            return []
 
-        similar = []
-        for outcome in self.task_outcomes:
-            if outcome["description_hash"] == current_hash:
-                similar.append(outcome)
+        try:
+            results = self.collection.query(query_texts=[task_description], n_results=limit)
 
-        return similar[:limit]
+            # Retrieve full outcomes based on IDs
+            similar_outcomes = []
+            if results["ids"]:
+                found_ids = results["ids"][0]
+                # Map IDs back to full outcomes from JSON storage (faster than storing all in metadata)
+                # Or just use metadata if sufficient
+
+                # Let's verify metadata content
+                metadatas = results["metadatas"][0]
+
+                for i, task_id in enumerate(found_ids):
+                    # Find full details from task_outcomes list
+                    # Optimization: create a lookup dict if list is huge
+                    match = next((o for o in self.task_outcomes if o["task_id"] == task_id), None)
+                    if match:
+                        similar_outcomes.append(match)
+
+            return similar_outcomes
+
+        except Exception as e:
+            logger.error(f"Vector search failed: {e}")
+            return []
 
     async def get_best_model_for_task(self, task: Task) -> Optional[str]:
         """
-        Recommend best model based on historical performance.
-
-        Args:
-            task: Task to find best model for
-
-        Returns:
-            Model name or None if no history
+        Recommend best model based on semantically similar past tasks.
         """
-        similar = await self.get_similar_tasks(task.description)
+        similar = await self.get_similar_tasks(task.description, limit=10)
 
         if not similar:
             return None
 
-        # Find model with best average quality score
+        # Find model with best average quality score in SIMILAR tasks
         model_scores: Dict[str, List[float]] = {}
 
         for outcome in similar:
@@ -125,6 +193,9 @@ class LearningEngine:
 
         # Return best model
         best_model = max(model_averages.items(), key=lambda x: x[1])
+        logger.info(
+            f"Learning Engine recommends {best_model[0]} based on {len(similar)} similar tasks."
+        )
         return best_model[0]
 
     async def get_agent_performance(self, agent_type: str) -> Optional[AgentMetrics]:
@@ -138,23 +209,30 @@ class LearningEngine:
     async def should_use_tool(self, tool_name: str, task_type: str) -> bool:
         """
         Determine if a tool should be used based on historical performance.
-
-        Args:
-            tool_name: Name of the tool
-            task_type: Type of task
-
-        Returns:
-            True if tool historically outperforms AI
+        Checks similar tasks first.
         """
-        tool_outcomes = [
-            o for o in self.task_outcomes if o.get("tool_used") == tool_name and o["success"]
-        ]
+        # Try to find similar tasks that used this tool
+        # 'task_type' is a string description here? Or enum?
+        # If it's a description, we can semantic search.
+
+        similar = await self.get_similar_tasks(task_type, limit=10)
+
+        tool_outcomes = [o for o in similar if o.get("tool_used") == tool_name and o["success"]]
 
         ai_outcomes = [
-            o
-            for o in self.task_outcomes
-            if o.get("model_used") and not o.get("tool_used") and o["success"]
+            o for o in similar if o.get("model_used") and not o.get("tool_used") and o["success"]
         ]
+
+        if not tool_outcomes and not ai_outcomes:
+            # Fallback to global stats if no similar tasks found
+            tool_outcomes = [
+                o for o in self.task_outcomes if o.get("tool_used") == tool_name and o["success"]
+            ]
+            ai_outcomes = [
+                o
+                for o in self.task_outcomes
+                if o.get("model_used") and not o.get("tool_used") and o["success"]
+            ]
 
         if not tool_outcomes or not ai_outcomes:
             return False
@@ -244,6 +322,5 @@ class LearningEngine:
 
     def _hash_description(self, description: str) -> str:
         """Create hash of task description for similarity matching."""
-        # Normalize description
         normalized = description.lower().strip()
         return hashlib.md5(normalized.encode()).hexdigest()[:16]
