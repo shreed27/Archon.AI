@@ -48,7 +48,7 @@ class ManagerOrchestrator:
         self.tool_router = ToolRouter()
         self.task_scheduler = TaskScheduler()
         self.arbitrator = Arbitrator()
-        self.quality_gate = QualityGate()
+        self.quality_gate = QualityGate(str(self.project_path))
         self.learning_engine = LearningEngine()
 
         # Persistence
@@ -83,6 +83,9 @@ class ManagerOrchestrator:
 
         self.architecture_state = ArchitectureState(str(self.archon_dir / "architecture_map.json"))
         await self.architecture_state.initialize()
+
+        # Initialize quality gate with full context
+        self.quality_gate = QualityGate(str(self.project_path), self.architecture_state)
 
         # Initialize learning engine
         await self.learning_engine.initialize(self.archon_dir)
