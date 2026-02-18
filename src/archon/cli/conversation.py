@@ -4,14 +4,18 @@ Conversational interface for ARCHON.
 Handles natural language interaction between user and Manager.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.live import Live
 from rich.spinner import Spinner
+from rich.panel import Panel
+from rich.table import Table
 
 if TYPE_CHECKING:
     from archon.manager.orchestrator import ManagerOrchestrator
+
+from archon.cli.session_config import SessionConfig, ExecutionMode
 
 console = Console()
 
@@ -25,22 +29,27 @@ class ConversationalInterface:
     - Display Manager responses
     - Show progress updates
     - Handle multi-turn conversations
+    - Respect session mode (plan vs fast) and model override
     """
 
-    def __init__(self, manager: "ManagerOrchestrator"):
+    def __init__(self, manager: "ManagerOrchestrator", session: SessionConfig):
         self.manager = manager
+        self.session = session
         self.conversation_history = []
 
     async def process_goal(self, goal: str):
         """
         Process initial user goal.
 
-        Flow:
-        1. Manager parses goal into specification
-        2. Manager creates task DAG
-        3. Manager shows plan
-        4. User confirms
-        5. Manager executes
+        In PLAN mode:
+          1. Manager parses goal → specification
+          2. Shows plan to user
+          3. User approves / modifies / cancels
+          4. Execute on approval
+
+        In FAST mode:
+          1. Manager parses goal → specification
+          2. Execute immediately (no confirmation step)
         """
 
         self.conversation_history.append({"role": "user", "content": goal})
@@ -61,20 +70,27 @@ class ConversationalInterface:
         for task in spec["tasks"]:
             console.print(f"  {task['id']}: {task['description']} → {task['agent']}")
 
-        # Ask for confirmation
-        proceed = Prompt.ask(
-            "\n[bold green]Proceed with this plan?[/bold green]",
-            choices=["yes", "no", "modify"],
-            default="yes",
-        )
-
-        if proceed == "yes":
+        # ── Mode-dependent confirmation ──────────────────────────────────────
+        if self.session.mode == ExecutionMode.FAST:
+            console.print(
+                f"\n[bold color(226)]⚡ Fast mode — executing immediately...[/bold color(226)]"
+            )
             await self._execute_plan(spec)
-        elif proceed == "modify":
-            modification = Prompt.ask("[bold green]What would you like to change?[/bold green]")
-            await self.process_input(modification)
-        else:
-            console.print("[yellow]Plan cancelled.[/yellow]")
+
+        else:  # PLAN mode
+            proceed = Prompt.ask(
+                "\n[bold green]Proceed with this plan?[/bold green]",
+                choices=["yes", "no", "modify"],
+                default="yes",
+            )
+
+            if proceed == "yes":
+                await self._execute_plan(spec)
+            elif proceed == "modify":
+                modification = Prompt.ask("[bold green]What would you like to change?[/bold green]")
+                await self.process_input(modification)
+            else:
+                console.print("[yellow]Plan cancelled.[/yellow]")
 
     async def _execute_plan(self, spec: dict):
         """
@@ -142,6 +158,85 @@ class ConversationalInterface:
         if response.get("action"):
             await self._execute_action(response["action"])
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Slash commands
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _handle_slash_command(self, cmd: str) -> bool:
+        """
+        Handle /slash commands. Returns True if handled, False otherwise.
+        """
+        cmd = cmd.strip().lower()
+
+        if cmd in ["/exit", "/quit", "exit", "quit"]:
+            return False  # Signal to exit REPL
+
+        if cmd == "/help":
+            console.print(
+                Panel(
+                    "  [bold color(39)]/mode[/bold color(39)]    — Switch execution mode (Plan / Fast)\n"
+                    "  [bold color(201)]/model[/bold color(201)]   — Switch AI model\n"
+                    "  [bold white]/status[/bold white]  — Show project status\n"
+                    "  [bold white]/exit[/bold white]    — Quit ARCHON",
+                    title="[bold]Available Commands[/bold]",
+                    border_style="color(39)",
+                )
+            )
+            Prompt.ask("Press Enter to continue")
+            return True
+
+        if cmd == "/mode":
+            from archon.cli.ui import ArchonUI
+
+            new_mode = ArchonUI.show_mode_selector()
+            self.session.mode = new_mode
+            console.print(
+                f"[bold color(82)]✓[/bold color(82)] Mode updated to "
+                f"[bold color(226)]{self.session.mode_icon} {self.session.mode_label}[/bold color(226)]"
+            )
+            Prompt.ask("Press Enter to continue")
+            return True
+
+        if cmd == "/model":
+            from archon.cli.ui import ArchonUI
+
+            new_model = ArchonUI.show_model_selector()
+            self.session.model = new_model
+            console.print(
+                f"[bold color(82)]✓[/bold color(82)] Model updated to "
+                f"[bold]{self.session.model_icon} {self.session.model_label}[/bold]"
+            )
+            Prompt.ask("Press Enter to continue")
+            return True
+
+        if cmd == "/status":
+            await self._show_status()
+            Prompt.ask("Press Enter to continue")
+            return True
+
+        return True  # Unknown slash command — just continue
+
+    async def _show_status(self):
+        """Display current session status."""
+        from archon.cli.session_config import MODE_METADATA
+
+        mode_meta = MODE_METADATA[self.session.mode]
+
+        table = Table(title="Session Status", box=None, show_header=False)
+        table.add_column("Key", style="bold color(39)", width=16)
+        table.add_column("Value", style="white")
+
+        table.add_row("Mode", f"{mode_meta['icon']} {mode_meta['label']}")
+        table.add_row("Model", f"{self.session.model_icon} {self.session.model_label}")
+        table.add_row("Provider", self.session.model_provider)
+        table.add_row("Project", self.session.project_name)
+
+        console.print(table)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Main REPL
+    # ─────────────────────────────────────────────────────────────────────────
+
     async def start_repl(self, project_path):
         """
         Starts the main Read-Eval-Print Loop (REPL).
@@ -157,12 +252,17 @@ class ConversationalInterface:
             # Count files
             file_count = ArchonUI.get_file_count(project_path)
 
-            # Render the UI Layout
-            ArchonUI.render_input_look(project_path, "Auto (Gemini 2.5)", file_count)
+            # Render the UI Layout — now passes mode + model from session
+            ArchonUI.render_input_look(
+                project_path,
+                model_name=self.session.model_label,
+                file_count=file_count,
+                mode=self.session.mode_label,
+                mode_icon=self.session.mode_icon,
+            )
 
-            # Robust Input Prompt (No fragile cursor jumps)
+            # Robust Input Prompt
             try:
-                # Using a visually distinct prompt that matches the theme
                 user_input = Prompt.ask(" [bold white]>[/bold white]")
             except KeyboardInterrupt:
                 break
@@ -172,30 +272,21 @@ class ConversationalInterface:
             if not user_input.strip():
                 continue
 
-            if user_input.lower() in ["/exit", "/quit", "exit", "quit"]:
-                break
-
-            if user_input.lower() == "/help":
-                console.print(
-                    Panel(
-                        "• /exit - Quit\n• /status - Project Status\n• @file - Context",
-                        title="Help",
-                    )
-                )
-                # Pause to let user read
-                Prompt.ask("Press Enter to continue")
+            # Handle slash commands first
+            if user_input.startswith("/") or user_input.lower() in ["exit", "quit"]:
+                should_continue = await self._handle_slash_command(user_input)
+                if not should_continue:
+                    break
                 continue
 
-            # Process input with simulated Manager
+            # Process user request
             await self._handle_user_request(user_input)
 
     async def _handle_user_request(self, user_input: str):
         """
         Simulated Manager response logic.
+        Respects session mode (plan vs fast) and model override.
         """
-        from rich.console import Console
-        from rich.panel import Panel
-        from rich.table import Table
         import asyncio
 
         c = Console()
@@ -213,11 +304,9 @@ class ConversationalInterface:
             await asyncio.sleep(1.5)  # Simulate thinking
 
         # 2. Display Manager's Decision
-        # Simulate different responses based on input
         plan_panel = None
 
         if "todo" in user_input.lower() or "app" in user_input.lower():
-            # Example Plan for "Todo App"
             grid = Table.grid(expand=True)
             grid.add_column()
             grid.add_row("[bold cyan]AGENTS SELECTED:[/bold cyan]")
@@ -231,6 +320,13 @@ class ConversationalInterface:
             grid.add_row("  3. [white]Implement API Routes[/white]")
             grid.add_row("  4. [white]Build Frontend Components[/white]")
 
+            # Show mode indicator in plan
+            mode_note = (
+                f"\n[dim]Mode: {self.session.mode_icon} {self.session.mode_label}  ·  "
+                f"Model: {self.session.model_icon} {self.session.model_label}[/dim]"
+            )
+            grid.add_row(mode_note)
+
             plan_panel = Panel(
                 grid,
                 title="[bold green]MANAGER PLAN[/bold green]",
@@ -238,11 +334,12 @@ class ConversationalInterface:
                 subtitle="[dim]4 Tasks • 3 Agents[/dim]",
             )
         else:
-            # Generic Plan
             plan_panel = Panel(
                 f"[white]I have analyzed your request: '{user_input}'[/white]\n\n"
                 "[bold cyan]Action:[/bold cyan] Awaiting further specification.\n"
-                "[bold cyan]Status:[/bold cyan] Ready to execute custom logic.",
+                "[bold cyan]Status:[/bold cyan] Ready to execute custom logic.\n"
+                f"[dim]Mode: {self.session.mode_icon} {self.session.mode_label}  ·  "
+                f"Model: {self.session.model_icon} {self.session.model_label}[/dim]",
                 title="[bold green]SYSTEM ACKNOWLEDGED[/bold green]",
                 border_style="bold green",
             )
@@ -250,8 +347,15 @@ class ConversationalInterface:
         c.print(plan_panel)
         c.print("")
 
-        # Pause before clearing
-        Prompt.ask("[dim]Press Enter to continue...[/dim]")
+        # In FAST mode — skip confirmation prompt
+        if self.session.mode == ExecutionMode.FAST:
+            c.print(
+                "[bold color(226)]⚡ Fast mode — proceeding without confirmation.[/bold color(226)]"
+            )
+            c.print("")
+        else:
+            # PLAN mode — user reviews before continuing
+            Prompt.ask("[dim]Review plan above. Press Enter to continue...[/dim]")
 
     async def _execute_action(self, action: dict):
         """Execute action determined by Manager."""
@@ -259,11 +363,8 @@ class ConversationalInterface:
         if action["type"] == "execute_task":
             await self._execute_plan(action["spec"])
         elif action["type"] == "show_status":
-            status = await self.manager.get_status()
-            # Display status (similar to status_command)
+            await self._show_status()
         elif action["type"] == "modify_architecture":
-            # Handle architecture modifications
             pass
         elif action.get("message"):
-            # Just a fallback if only message is present
             pass
