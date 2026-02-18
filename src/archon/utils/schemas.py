@@ -65,9 +65,9 @@ class FileChange(BaseModel):
 class TaskResult(BaseModel):
     """Result of task execution."""
 
-    task_id: str
+    task_id: Optional[str] = None
     success: bool
-    output: Dict[str, Any]
+    output: Any  # Can be dict or string
     files_modified: List[FileChange] = Field(default_factory=list)
     quality_score: float
     execution_time_ms: int
@@ -151,3 +151,23 @@ class AgentMetrics(BaseModel):
     avg_execution_time_ms: int
     success_rate: float
     last_updated: datetime = Field(default_factory=datetime.now)
+
+
+class ToolResult(BaseModel):
+    """Result from external tool execution."""
+
+    success: bool
+    output: str
+    error: Optional[str] = None
+    execution_time_ms: int
+    tool_used: Optional[str] = None
+    artifacts: List[str] = Field(default_factory=list)
+
+
+class Tool(BaseModel):
+    """External tool definition."""
+
+    name: str
+    description: str
+    trust_score: float
+    task_types_supported: List[str] = Field(default_factory=list)
