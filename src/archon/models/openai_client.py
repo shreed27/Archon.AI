@@ -22,6 +22,65 @@ class OpenAIClient:
         self.client = AsyncOpenAI(api_key=self.api_key)
         self.default_model = "gpt-4-turbo-preview"
 
+    async def complete(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        system_prompt: str = "You are a helpful AI assistant.",
+    ) -> Dict[str, Any]:
+        """
+        Complete a prompt and optionally parse JSON.
+
+        Args:
+            prompt: User prompt
+            model: Model name
+            system_prompt: System instruction
+
+        Returns:
+            Dict containing 'content' and optional 'parsed_json'
+        """
+        import json
+
+        model = model or self.default_model
+
+        # Helper to extract JSON from markdown code blocks
+        def extract_json(text):
+            try:
+                # Try direct parse
+                return json.loads(text)
+            except:
+                pass
+
+            # Try finding ```json block
+            if "```json" in text:
+                start = text.find("```json") + 7
+                end = text.find("```", start)
+                if end != -1:
+                    try:
+                        return json.loads(text[start:end].strip())
+                    except:
+                        pass
+            # Try finding { ... }
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1:
+                try:
+                    return json.loads(text[start : end + 1])
+                except:
+                    pass
+            return {}
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+        content = await self.chat(messages, model=model)
+
+        parsed = extract_json(content)
+
+        return {"content": content, "parsed_json": parsed}
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
