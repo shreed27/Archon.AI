@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from archon.cli.commands import start_command, resume_command, status_command
+from archon.cli.voice_commands import voice_command
 
 # Load environment variables (API keys etc.)
 load_dotenv()
@@ -30,6 +31,26 @@ def main():
     status_parser = subparsers.add_parser("status", help="Show project status")
     status_parser.add_argument("path", nargs="?", default=".", help="Project path")
 
+    # Voice command
+    voice_parser = subparsers.add_parser(
+        "voice",
+        help="Start hands-free J.A.R.V.I.S. voice session",
+    )
+    voice_parser.add_argument("path", nargs="?", default=".", help="Project path")
+    voice_parser.add_argument(
+        "--activation",
+        choices=["vad", "ptt", "wake"],
+        default=None,
+        help="Activation mode: vad (auto), ptt (push-to-talk), wake (wake word). "
+        "Defaults to ARCHON_VOICE_ACTIVATION env var or 'vad'.",
+    )
+    voice_parser.add_argument(
+        "--voice",
+        default=None,
+        help="Gemini voice persona: Puck, Kore, Aoede, Charon, Fenrir. "
+        "Defaults to ARCHON_VOICE env var or 'Puck'.",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -45,6 +66,14 @@ def main():
             asyncio.run(resume_command(project_path))
         elif args.command == "status":
             asyncio.run(status_command(project_path))
+        elif args.command == "voice":
+            import os
+
+            activation = getattr(args, "activation", None) or os.getenv(
+                "ARCHON_VOICE_ACTIVATION", "vad"
+            )
+            voice = getattr(args, "voice", None) or os.getenv("ARCHON_VOICE", "Puck")
+            asyncio.run(voice_command(project_path, activation=activation, voice_name=voice))
 
     except KeyboardInterrupt:
         print("\n👋 Archon session terminated.")
