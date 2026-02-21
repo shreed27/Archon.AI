@@ -18,10 +18,28 @@ class ExecutionMode(str, Enum):
 
     FAST  — Manager executes immediately without waiting for plan approval.
             Best for simple, well-defined tasks.
+
+    VOICE — Hands-free J.A.R.V.I.S. mode. Bidirectional audio via Gemini Live API.
+            Supports VAD, Push-to-Talk, and Wake-Word activation.
     """
 
     PLAN = "plan"
     FAST = "fast"
+    VOICE = "voice"
+
+
+class VoiceActivation(str, Enum):
+    """
+    How the voice interface decides when to capture microphone input.
+
+    VAD        — Automatic Voice Activity Detection (always listening, Gemini decides).
+    PTT        — Push-to-Talk: hold Space to speak, release to send.
+    WAKE_WORD  — Listen for 'Hey Archon' to start a turn.
+    """
+
+    VAD = "vad"
+    PTT = "ptt"
+    WAKE_WORD = "wake"
 
 
 # Human-readable labels and descriptions for the mode picker
@@ -39,6 +57,31 @@ MODE_METADATA = {
         "tagline": "Agent will execute tasks directly.",
         "detail": "Use for simple tasks that can be completed faster.",
         "color": "color(226)",  # yellow
+    },
+    ExecutionMode.VOICE: {
+        "label": "Voice",
+        "icon": "🎙️",
+        "tagline": "Hands-free J.A.R.V.I.S. mode via Gemini Live API.",
+        "detail": "Speak naturally; Archon listens and speaks back in real time.",
+        "color": "color(201)",  # magenta
+    },
+}
+
+VOICE_ACTIVATION_METADATA = {
+    VoiceActivation.VAD: {
+        "label": "Auto (VAD)",
+        "icon": "🔊",
+        "detail": "Always listening — Gemini detects speech automatically.",
+    },
+    VoiceActivation.PTT: {
+        "label": "Push-to-Talk",
+        "icon": "🖱️",
+        "detail": "Hold Space to speak, release to send.",
+    },
+    VoiceActivation.WAKE_WORD: {
+        "label": "Wake Word",
+        "icon": "💬",
+        "detail": "Say 'Hey Archon' to start a turn.",
     },
 }
 
@@ -160,6 +203,9 @@ class SessionConfig:
     mode: ExecutionMode = ExecutionMode.PLAN
     model: str = "auto"  # model ID string, "auto" = Manager decides
     project_name: str = "Unknown"
+    # Voice-specific settings (only relevant when mode == VOICE)
+    voice_activation: VoiceActivation = VoiceActivation.VAD
+    voice_name: str = "Puck"  # Gemini voice: Puck, Kore, Aoede, Charon, Fenrir
 
     @property
     def mode_label(self) -> str:
