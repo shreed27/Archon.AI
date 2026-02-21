@@ -47,6 +47,7 @@ class ManagerOrchestrator:
 
         # Core subsystems
         self.sandbox = ToolSandbox(str(self.project_path))
+        self.learning_engine = LearningEngine()
         self.model_router = ModelRouter()
         self.tool_router = ToolRouter(self.sandbox, self.learning_engine)
 
@@ -56,7 +57,6 @@ class ManagerOrchestrator:
         self.task_scheduler = TaskScheduler()
         self.arbitrator = Arbitrator()
         self.quality_gate = QualityGate(str(self.project_path))
-        self.learning_engine = LearningEngine()
 
         # Persistence
         self.db: Optional[Database] = None
