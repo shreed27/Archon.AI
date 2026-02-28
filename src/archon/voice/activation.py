@@ -137,10 +137,12 @@ class PTTActivator(_BaseActivator):
             suppress=False,  # Don't swallow key events globally
         )
         self._listener.start()  # type: ignore[attr-defined]
+        logger.info("PTT activator started — hold SPACE to speak")
 
     async def stop(self) -> None:
         if self._listener:
             self._listener.stop()  # type: ignore[attr-defined]
+            logger.info("PTT activator stopped")
 
     # ── pynput callbacks (run in listener thread) ──────────────────────────
 
