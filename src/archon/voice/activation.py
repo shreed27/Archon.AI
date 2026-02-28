@@ -26,10 +26,16 @@ without polling.
 """
 
 import asyncio
+import logging
+import os
 from enum import Enum, auto
 from typing import Optional
 
+import numpy as np
+
 from archon.cli.session_config import VoiceActivation
+
+logger = logging.getLogger(__name__)
 
 # pynput is optional — only needed for PTT mode
 try:
