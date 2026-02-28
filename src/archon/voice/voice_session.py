@@ -31,6 +31,7 @@ Slash commands (typed in the terminal even in voice mode):
 """
 
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -61,6 +62,8 @@ from archon.voice.gemini_live_client import (
     LiveSession,
 )
 from archon.voice.visualizer import VisualizerState, WaveformVisualizer
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -146,6 +149,7 @@ class VoiceSession:
         preprocessor = AudioPreprocessor(
             enable_spectral_denoise=os.getenv("ARCHON_NOISE_REDUCE", "0") == "1",
         )
+        logger.info("Audio preprocessor ready")
 
         async with (
             WaveformVisualizer() as viz,
@@ -154,14 +158,6 @@ class VoiceSession:
         ):
             await activator.start()
 
-            # VAD: we stream continuously; PTT/WakeWord: we gate on events
-            is_continuous = (
-                isinstance(activator, type(activator))
-                and self.activation_mode == VoiceActivation.VAD
-            )
-
-            # Tasks running in parallel
-            mic_buf: asyncio.Queue[bytes] = asyncio.Queue(maxsize=50)
             slash_task = asyncio.create_task(self._watch_slash_commands(viz))
 
             viz.set_state(VisualizerState.LISTENING)
@@ -170,9 +166,9 @@ class VoiceSession:
                 async with client.session() as sess:
                     # Concurrent tasks
                     mic_fwd_task = asyncio.create_task(
-                        self._mic_forward_loop(mic, mic_buf, activator, viz, sess, preprocessor)
+                        self._mic_forward_loop(mic, activator, viz, sess, preprocessor)
                     )
-                    recv_task = asyncio.create_task(self._receive_loop(sess, speaker, viz, mic_buf))
+                    recv_task = asyncio.create_task(self._receive_loop(sess, speaker, viz))
 
                     await asyncio.gather(mic_fwd_task, recv_task, slash_task)
 
@@ -185,7 +181,6 @@ class VoiceSession:
     async def _mic_forward_loop(
         self,
         mic: MicCapture,
-        mic_buf: asyncio.Queue,
         activator,
         viz: WaveformVisualizer,
         sess: LiveSession,
@@ -234,11 +229,10 @@ class VoiceSession:
                 if rms > BARGE_IN_RMS_THRESHOLD:
                     barge_in_streak += 1
                     if barge_in_streak >= BARGE_IN_FRAMES_REQUIRED:
-                        # Interrupt!
                         sess.interrupt()
-                        speaker_obj = None  # accessed via closure in receive loop
                         viz.set_state(VisualizerState.LISTENING)
                         barge_in_streak = 0
+                        logger.debug("Barge-in triggered (RMS=%.3f)", rms)
                 else:
                     barge_in_streak = 0
 
@@ -254,7 +248,6 @@ class VoiceSession:
         sess: LiveSession,
         speaker: SpeakerPlayback,
         viz: WaveformVisualizer,
-        mic_buf: asyncio.Queue,
     ) -> None:
         """Receives audio/text from Gemini and plays it."""
         while self._running:
