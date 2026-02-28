@@ -264,7 +264,35 @@ class WakeWordActivator(_BaseActivator):
         Raises:
             ImportError: If openwakeword is not installed.
         """
-        raise NotImplementedError("Model loading not yet implemented")
+        try:
+            import openwakeword
+            from openwakeword.model import Model as OWWModel
+        except ImportError:
+            raise ImportError(
+                "openwakeword is required for Wake-Word mode.\n"
+                "Install with: pip install openwakeword"
+            )
+
+        # Download built-in models if not already cached
+        openwakeword.utils.download_models()
+
+        if self._custom_model_path:
+            model = OWWModel(wakeword_models=[self._custom_model_path])
+            from pathlib import Path
+
+            model_key = Path(self._custom_model_path).stem
+            logger.info("Loaded custom wake-word model: %s (threshold=%.2f)", model_key, self._threshold)
+        else:
+            model = OWWModel(wakeword_models=[_FALLBACK_MODEL])
+            model_key = _FALLBACK_MODEL
+            logger.info(
+                "Using fallback wake-word model '%s' (threshold=%.2f). "
+                "Set ARCHON_WAKE_MODEL_PATH for a custom 'Hey Archon' model.",
+                _FALLBACK_MODEL,
+                self._threshold,
+            )
+
+        return model, model_key
 
     # ── Monitor loop ──────────────────────────────────────────────────────
 
