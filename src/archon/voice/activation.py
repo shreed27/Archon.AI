@@ -303,7 +303,52 @@ class WakeWordActivator(_BaseActivator):
         In WAITING_FOR_WAKE state: runs openwakeword inference on each chunk.
         In ACTIVE_TURN state: monitors RMS for silence to end the turn.
         """
-        pass
+        while True:
+            try:
+                pcm_bytes = await self._audio_queue.get()
+            except asyncio.CancelledError:
+                break
+
+            # Convert PCM bytes to int16 numpy array (openwakeword native format)
+            audio_i16 = np.frombuffer(pcm_bytes, dtype=np.int16)
+
+            if self._listening_for_wake:
+                # ── Wake-word detection ──────────────────────────────────
+                prediction = self._oww_model.predict(audio_i16)  # type: ignore[union-attr]
+                score = prediction.get(self._model_key, 0.0)
+
+                if score >= self._threshold:
+                    logger.info(
+                        "Wake-word detected! (model=%s, score=%.3f, threshold=%.3f)",
+                        self._model_key,
+                        score,
+                        self._threshold,
+                    )
+                    self._listening_for_wake = False
+                    self._active_turn = True
+                    self._silence_streak = 0
+                    # Reset model state so it doesn't re-trigger on residual audio
+                    self._oww_model.reset()  # type: ignore[union-attr]
+                    self._emit(ActivationEvent.LISTENING_START)
+
+            else:
+                # ── Active turn: monitor for silence ─────────────────────
+                audio_f32 = audio_i16.astype(np.float32) / 32768.0
+                rms = float(np.sqrt(np.mean(audio_f32**2)))
+
+                if rms < self.ENERGY_THRESHOLD:
+                    self._silence_streak += 1
+                    if self._silence_streak >= self.SILENCE_FRAMES_TO_END:
+                        logger.debug(
+                            "Wake-word turn ended by silence (%d frames)",
+                            self._silence_streak,
+                        )
+                        self._active_turn = False
+                        self._listening_for_wake = True
+                        self._silence_streak = 0
+                        self._emit(ActivationEvent.LISTENING_END)
+                else:
+                    self._silence_streak = 0
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
