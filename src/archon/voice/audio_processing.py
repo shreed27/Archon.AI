@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 _HPF_CUTOFF_HZ = float(os.getenv("ARCHON_HPF_CUTOFF", "80"))
 _NOISE_GATE_THRESHOLD = float(os.getenv("ARCHON_NOISE_GATE_THRESHOLD", "0.008"))
+_AGC_TARGET_RMS = float(os.getenv("ARCHON_AGC_TARGET", "0.15"))
 
 
 class AudioPreprocessor:
@@ -59,6 +60,11 @@ class AudioPreprocessor:
     NOISE_GATE_THRESHOLD: float = _NOISE_GATE_THRESHOLD
     NOISE_GATE_ATTENUATION: float = 0.01  # -40 dB (soft, not hard zero)
 
+    # Automatic Gain Control
+    AGC_TARGET_RMS: float = _AGC_TARGET_RMS
+    AGC_MAX_GAIN: float = 10.0
+    AGC_SMOOTHING: float = 0.95  # EMA coefficient (higher = smoother)
+
     def __init__(
         self,
         sample_rate: int = 16_000,
@@ -70,10 +76,14 @@ class AudioPreprocessor:
         self._hpf_z1: float = 0.0
         self._hpf_z2: float = 0.0
 
+        # AGC state
+        self._agc_gain: float = 1.0
+
         logger.info(
-            "AudioPreprocessor initialised: hpf=%dHz gate=%.4f",
+            "AudioPreprocessor initialised: hpf=%dHz gate=%.4f agc_target=%.2f",
             int(self.HPF_CUTOFF_HZ),
             self.NOISE_GATE_THRESHOLD,
+            self.AGC_TARGET_RMS,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -95,6 +105,7 @@ class AudioPreprocessor:
 
         audio = self._apply_highpass(audio)
         audio = self._apply_noise_gate(audio)
+        audio = self._apply_agc(audio)
 
         return np_to_pcm_bytes(audio)
 
@@ -156,3 +167,23 @@ class AudioPreprocessor:
         if rms < self.NOISE_GATE_THRESHOLD:
             return audio * self.NOISE_GATE_ATTENUATION
         return audio
+
+    # ── Stage 3: Automatic Gain Control ───────────────────────────────────────
+
+    def _apply_agc(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Normalise volume with EMA-smoothed gain.
+
+        Quiet audio is amplified toward AGC_TARGET_RMS, loud audio is
+        compressed.  Gain changes are smoothed with an exponential moving
+        average to prevent audible "pumping".
+        """
+        rms = float(np.sqrt(np.mean(audio**2)))
+        if rms > 1e-6:
+            desired_gain = self.AGC_TARGET_RMS / rms
+            desired_gain = min(desired_gain, self.AGC_MAX_GAIN)
+            self._agc_gain = (
+                self.AGC_SMOOTHING * self._agc_gain
+                + (1.0 - self.AGC_SMOOTHING) * desired_gain
+            )
+        return np.clip(audio * self._agc_gain, -1.0, 1.0)
