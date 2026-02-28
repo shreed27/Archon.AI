@@ -55,6 +55,98 @@ def _make_pcm_tone(
 # ── TestVADActivator ──────────────────────────────────────────────────────────
 
 
+class TestVADActivator:
+    """VAD mode: always-on, single LISTENING_START on start()."""
+
+    @pytest.mark.asyncio
+    async def test_start_emits_listening_start(self):
+        activator = VADActivator()
+        await activator.start()
+        event = activator._events.get_nowait()
+        assert event == ActivationEvent.LISTENING_START
+
+    @pytest.mark.asyncio
+    async def test_signal_playback_interrupted(self):
+        activator = VADActivator()
+        activator.signal_playback_interrupted()
+        event = activator._events.get_nowait()
+        assert event == ActivationEvent.INTERRUPTED
+
+    @pytest.mark.asyncio
+    async def test_queue_empty_after_drain(self):
+        activator = VADActivator()
+        await activator.start()
+        _ = activator._events.get_nowait()  # drain LISTENING_START
+        assert activator._events.empty()
+
+
+# ── TestPTTActivator ──────────────────────────────────────────────────────────
+
+
+class TestPTTActivator:
+    """Push-to-Talk mode: keyboard events → activation events."""
+
+    @pytest.mark.asyncio
+    async def test_ptt_missing_pynput_raises(self):
+        """If pynput is not available, start() should raise ImportError."""
+        activator = PTTActivator()
+        # Temporarily set _kb to None to simulate missing pynput
+        with patch("archon.voice.activation._kb", None):
+            with pytest.raises(ImportError, match="pynput"):
+                await activator.start()
+
+    @pytest.mark.asyncio
+    async def test_ptt_press_emits_listening_start(self):
+        """Simulating SPACE press should emit LISTENING_START."""
+        activator = PTTActivator()
+        # Simulate a key press callback directly
+        activator._loop = asyncio.get_running_loop()
+        activator._holding = False
+        activator._on_press(activator.PTT_KEY)
+        assert activator._holding is True
+        # call_soon_threadsafe schedules for next iteration — yield to process it
+        await asyncio.sleep(0)
+        event = activator._events.get_nowait()
+        assert event == ActivationEvent.LISTENING_START
+
+    @pytest.mark.asyncio
+    async def test_ptt_release_emits_listening_end(self):
+        """Simulating SPACE release should emit LISTENING_END."""
+        activator = PTTActivator()
+        activator._loop = asyncio.get_running_loop()
+        # First press
+        activator._on_press(activator.PTT_KEY)
+        await asyncio.sleep(0)  # process call_soon_threadsafe callback
+        _ = activator._events.get_nowait()  # drain
+        # Then release
+        activator._on_release(activator.PTT_KEY)
+        await asyncio.sleep(0)  # process call_soon_threadsafe callback
+        assert activator._holding is False
+        event = activator._events.get_nowait()
+        assert event == ActivationEvent.LISTENING_END
+
+    @pytest.mark.asyncio
+    async def test_ptt_ignores_non_space(self):
+        """Non-SPACE keys should not trigger events."""
+        activator = PTTActivator()
+        activator._loop = asyncio.get_running_loop()
+        activator._on_press("a")
+        assert activator._events.empty()
+        assert activator._holding is False
+
+    @pytest.mark.asyncio
+    async def test_ptt_no_duplicate_press(self):
+        """Holding SPACE should not emit multiple LISTENING_START events."""
+        activator = PTTActivator()
+        activator._loop = asyncio.get_running_loop()
+        activator._on_press(activator.PTT_KEY)
+        activator._on_press(activator.PTT_KEY)  # second press while holding
+        await asyncio.sleep(0)  # process call_soon_threadsafe callbacks
+        # Only one event should be in queue
+        _ = activator._events.get_nowait()
+        assert activator._events.empty()
+
+
 # ── TestWakeWordActivator ────────────────────────────────────────────────────
 
 
@@ -335,3 +427,50 @@ class TestWakeWordActivator:
 
 
 # ── TestBuildActivator ────────────────────────────────────────────────────────
+
+
+class TestBuildActivator:
+    """Factory function returns correct activator types."""
+
+    def test_vad_returns_vad_activator(self):
+        result = build_activator(VoiceActivation.VAD)
+        assert isinstance(result, VADActivator)
+
+    def test_ptt_returns_ptt_activator(self):
+        result = build_activator(VoiceActivation.PTT)
+        assert isinstance(result, PTTActivator)
+
+    def test_wake_word_returns_wake_word_activator(self):
+        result = build_activator(VoiceActivation.WAKE_WORD)
+        assert isinstance(result, WakeWordActivator)
+
+
+# ── TestBaseActivator ─────────────────────────────────────────────────────────
+
+
+class TestBaseActivator:
+    """Base activator interface tests."""
+
+    @pytest.mark.asyncio
+    async def test_emit_puts_event_in_queue(self):
+        activator = VADActivator()  # concrete subclass
+        activator._emit(ActivationEvent.EXIT)
+        event = activator._events.get_nowait()
+        assert event == ActivationEvent.EXIT
+
+    @pytest.mark.asyncio
+    async def test_next_event_blocks_until_available(self):
+        activator = VADActivator()
+
+        async def _emit_after_delay():
+            await asyncio.sleep(0.05)
+            activator._emit(ActivationEvent.LISTENING_START)
+
+        asyncio.create_task(_emit_after_delay())
+        event = await asyncio.wait_for(activator.next_event(), timeout=1.0)
+        assert event == ActivationEvent.LISTENING_START
+
+    @pytest.mark.asyncio
+    async def test_stop_is_noop_by_default(self):
+        activator = VADActivator()
+        await activator.stop()  # should not raise
