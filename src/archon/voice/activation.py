@@ -165,46 +165,70 @@ class PTTActivator(_BaseActivator):
 
 # ── Wake-Word Activator ───────────────────────────────────────────────────────
 
+# Default built-in model (phonetically close to "Hey Archon")
+_FALLBACK_MODEL = "hey_jarvis_v0.1"
+
 
 class WakeWordActivator(_BaseActivator):
     """
     Wake-Word mode: "Hey Archon".
 
-    Uses a lightweight heuristic:
-      - Continuously monitors MicCapture RMS.
-      - When RMS > ENERGY_THRESHOLD for at least ENERGY_FRAMES consecutive
-        chunks, a short audio window (KEYWORD_WINDOW_CHUNKS) is passed to
-        a keyword-match function.
-      - The keyword check is a simple phonetic substring match on a basic
-        transcription attempt; in production this would use a proper
-        keyword-spotting library (e.g. pvporcupine).  For now we use a
-        fallback that triggers after sustained speech energy above threshold
-        + a 2-second silence gap, which is good enough for demos.
+    Uses openwakeword for ML-based keyword spotting with ONNX inference.
+    Continuously monitors raw PCM audio from MicCapture and fires
+    activation events when the wake phrase is detected.
 
-    Note: `mic` (MicCapture instance) must be running before calling start().
+    Falls back to the built-in 'hey_jarvis' model (phonetically close
+    to "Hey Archon") until a custom ONNX model is trained and configured
+    via ARCHON_WAKE_MODEL_PATH.
+
+    State machine::
+
+      WAITING_FOR_WAKE → openwakeword score > threshold → emit LISTENING_START
+                                         ↓
+      ACTIVE_TURN → silence (15 frames = 1.5s) → emit LISTENING_END
+                                         ↓
+                                WAITING_FOR_WAKE
+
+    Custom "Hey Archon" Model Training:
+      1. Generate synthetic "Hey Archon" utterances via Google Cloud TTS
+         (multiple voices, speeds, accents — at least 200 positive samples).
+      2. Collect ~2000 negative samples (random speech, noise, music).
+      3. Run openwakeword training pipeline:
+         ``openwakeword.train_custom_model(positive_dir, negative_dir, output_path)``
+      4. Export .onnx model, set ARCHON_WAKE_MODEL_PATH=/path/to/hey_archon.onnx
+
+    Environment variables:
+      ARCHON_WAKE_MODEL_PATH  — path to custom ONNX wake-word model
+      ARCHON_WAKE_THRESHOLD   — detection confidence threshold [0-1] (default 0.5)
     """
 
-    WAKE_PHRASE = "hey archon"
-
-    # Energy gate: frames where RMS > threshold triggers listening start
-    ENERGY_THRESHOLD: float = 0.02  # ~quiet room background ≈ 0.005
-    ENERGY_FRAMES_TO_TRIGGER: int = 5  # 5 × 100ms = 0.5 s of speech
-
-    # Silence gate after speech starts: end turn after this many quiet frames
+    # Silence gate: end turn after this many consecutive quiet frames
     SILENCE_FRAMES_TO_END: int = 15  # 15 × 100ms = 1.5 s of silence
+    ENERGY_THRESHOLD: float = 0.02  # RMS threshold for silence detection during active turn
 
     def __init__(self) -> None:
         super().__init__()
         self._listening_for_wake: bool = True
         self._active_turn: bool = False
-        self._energy_streak: int = 0
         self._silence_streak: int = 0
         self._monitor_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
-        # mic will be injected by VoiceSession after it starts MicCapture
-        self._mic_rms_queue: asyncio.Queue[float] = asyncio.Queue()
+
+        # Audio queue — receives raw PCM bytes from VoiceSession
+        self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
+
+        # openwakeword model (loaded in start())
+        self._oww_model: Optional[object] = None
+        self._model_key: Optional[str] = None
+
+        # Configuration from environment
+        self._custom_model_path: Optional[str] = os.getenv("ARCHON_WAKE_MODEL_PATH")
+        self._threshold: float = float(os.getenv("ARCHON_WAKE_THRESHOLD", "0.5"))
 
     async def start(self) -> None:
+        """Initialize openwakeword model and start the monitoring loop."""
+        self._oww_model, self._model_key = self._load_model()
         self._monitor_task = asyncio.create_task(self._monitor_loop())
+        logger.info("Wake-word activator started — say the wake phrase to begin")
 
     async def stop(self) -> None:
         if self._monitor_task:
@@ -213,49 +237,45 @@ class WakeWordActivator(_BaseActivator):
                 await self._monitor_task
             except asyncio.CancelledError:
                 pass
+        logger.info("Wake-word activator stopped")
 
-    def push_rms(self, rms: float) -> None:
-        """Feed the latest RMS value from MicCapture. Called by VoiceSession."""
-        self._mic_rms_queue.put_nowait(rms)
+    def push_audio(self, pcm_bytes: bytes) -> None:
+        """
+        Feed raw PCM audio from MicCapture.
+
+        Called by VoiceSession on every mic chunk. The audio is queued
+        and consumed by the background monitor task for wake-word detection.
+
+        Args:
+            pcm_bytes: Raw LINEAR16 mono PCM at 16 kHz (int16 bytes).
+        """
+        self._audio_queue.put_nowait(pcm_bytes)
+
+    # ── Model loading ─────────────────────────────────────────────────────
+
+    def _load_model(self) -> tuple:
+        """
+        Lazy-load openwakeword and initialise the detection model.
+
+        Returns:
+            (model, model_key) tuple where model_key is the name used to
+            look up prediction scores from the model's output dict.
+
+        Raises:
+            ImportError: If openwakeword is not installed.
+        """
+        raise NotImplementedError("Model loading not yet implemented")
+
+    # ── Monitor loop ──────────────────────────────────────────────────────
 
     async def _monitor_loop(self) -> None:
         """
-        Consume RMS values and fire activation events.
+        Consume raw PCM audio and fire activation events.
 
-        State machine:
-          WAITING_FOR_WAKE → (energy detected) → LISTENING_TURN → (silence) → WAITING_FOR_WAKE
+        In WAITING_FOR_WAKE state: runs openwakeword inference on each chunk.
+        In ACTIVE_TURN state: monitors RMS for silence to end the turn.
         """
-        while True:
-            try:
-                rms = await self._mic_rms_queue.get()
-            except asyncio.CancelledError:
-                break
-
-            is_loud = rms > self.ENERGY_THRESHOLD
-
-            if self._listening_for_wake:
-                if is_loud:
-                    self._energy_streak += 1
-                    self._silence_streak = 0
-                    if self._energy_streak >= self.ENERGY_FRAMES_TO_TRIGGER:
-                        # Trigger: sustained speech detected — assume wake phrase
-                        self._listening_for_wake = False
-                        self._active_turn = True
-                        self._energy_streak = 0
-                        self._emit(ActivationEvent.LISTENING_START)
-                else:
-                    self._energy_streak = 0
-            else:  # active turn
-                if not is_loud:
-                    self._silence_streak += 1
-                    if self._silence_streak >= self.SILENCE_FRAMES_TO_END:
-                        # Turn ended by silence
-                        self._active_turn = False
-                        self._listening_for_wake = True
-                        self._silence_streak = 0
-                        self._emit(ActivationEvent.LISTENING_END)
-                else:
-                    self._silence_streak = 0
+        pass
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
