@@ -258,12 +258,6 @@ class VoiceSession:
     ) -> None:
         """Receives audio/text from Gemini and plays it."""
         while self._running:
-            try:
-                async with sess._sess:  # type: ignore[attr-defined]
-                    pass
-            except Exception:
-                pass
-
             async for part in sess.receive():
                 if not self._running:
                     break
