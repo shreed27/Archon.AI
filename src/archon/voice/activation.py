@@ -16,10 +16,13 @@ Three modes:
       Release SPACE → LISTENING_END event.
 
   WAKE_WORD
-      A lightweight energy + keyword heuristic using the MicCapture RMS.
-      When the user says "hey archon" (detected via a short recognition
-      window) a LISTENING_START event fires.  A second "stop" keyword or
-      silence triggers LISTENING_END.
+      ML-based keyword spotting via openwakeword (ONNX inference).
+      Continuously monitors raw PCM audio for the wake phrase.
+      When detected with confidence > threshold → LISTENING_START.
+      Silence after speech → LISTENING_END.
+
+      Falls back to the built-in 'hey_jarvis' model (phonetically close
+      to "Hey Archon") until a custom ONNX model is trained.
 
 Events are pushed into an asyncio.Queue so the VoiceSession can await them
 without polling.
