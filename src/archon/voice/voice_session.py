@@ -53,6 +53,7 @@ from archon.voice.audio_io import (
     SpeakerPlayback,
     compute_rms,
 )
+from archon.voice.audio_processing import AudioPreprocessor
 from archon.voice.gemini_live_client import (
     GenaiLiveClient,
     LiveAPIKeyError,
@@ -141,6 +142,11 @@ class VoiceSession:
         )
         activator = build_activator(self.activation_mode)
 
+        # Audio preprocessing: HPF → noise gate → AGC → (optional) spectral denoise
+        preprocessor = AudioPreprocessor(
+            enable_spectral_denoise=os.getenv("ARCHON_NOISE_REDUCE", "0") == "1",
+        )
+
         async with (
             WaveformVisualizer() as viz,
             MicCapture() as mic,
@@ -164,7 +170,7 @@ class VoiceSession:
                 async with client.session() as sess:
                     # Concurrent tasks
                     mic_fwd_task = asyncio.create_task(
-                        self._mic_forward_loop(mic, mic_buf, activator, viz, sess)
+                        self._mic_forward_loop(mic, mic_buf, activator, viz, sess, preprocessor)
                     )
                     recv_task = asyncio.create_task(self._receive_loop(sess, speaker, viz, mic_buf))
 
@@ -183,8 +189,16 @@ class VoiceSession:
         activator,
         viz: WaveformVisualizer,
         sess: LiveSession,
+        preprocessor: AudioPreprocessor,
     ) -> None:
-        """Continuously reads from mic and forwards to Gemini (if active)."""
+        """
+        Continuously reads from mic, preprocesses, and forwards to Gemini.
+
+        Audio flow:
+          raw chunk → compute_rms (for viz + barge-in on RAW signal)
+                    → preprocessor.process (HPF → gate → AGC → spectral)
+                    → sess.send_audio (clean audio to Gemini)
+        """
         forwarding = self.activation_mode == VoiceActivation.VAD
         barge_in_streak = 0
 
@@ -192,6 +206,7 @@ class VoiceSession:
             if not self._running:
                 break
 
+            # RMS from RAW audio — visualiser and barge-in need real mic levels
             rms = compute_rms(chunk)
             viz.push_mic_rms(rms)
 
@@ -227,9 +242,10 @@ class VoiceSession:
                 else:
                     barge_in_streak = 0
 
-            # Forward mic audio to Gemini
+            # Preprocess and forward to Gemini
             if forwarding:
-                await sess.send_audio(chunk)
+                clean_chunk = preprocessor.process(chunk)
+                await sess.send_audio(clean_chunk)
 
     # ── Receive loop task ──────────────────────────────────────────────────
 
