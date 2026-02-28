@@ -68,8 +68,10 @@ class AudioPreprocessor:
     def __init__(
         self,
         sample_rate: int = 16_000,
+        enable_spectral_denoise: bool = False,
     ) -> None:
         self.sample_rate = sample_rate
+        self._enable_spectral = enable_spectral_denoise
 
         # Biquad high-pass filter state (Direct Form II transposed)
         self._hpf_coeffs = self._compute_hpf_coeffs()
@@ -79,11 +81,15 @@ class AudioPreprocessor:
         # AGC state
         self._agc_gain: float = 1.0
 
+        # Spectral denoise (lazy-loaded)
+        self._nr_module: Optional[object] = None
+
         logger.info(
-            "AudioPreprocessor initialised: hpf=%dHz gate=%.4f agc_target=%.2f",
+            "AudioPreprocessor initialised: hpf=%dHz gate=%.4f agc_target=%.2f spectral=%s",
             int(self.HPF_CUTOFF_HZ),
             self.NOISE_GATE_THRESHOLD,
             self.AGC_TARGET_RMS,
+            self._enable_spectral,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -106,6 +112,9 @@ class AudioPreprocessor:
         audio = self._apply_highpass(audio)
         audio = self._apply_noise_gate(audio)
         audio = self._apply_agc(audio)
+
+        if self._enable_spectral:
+            audio = self._apply_spectral_denoise(audio)
 
         return np_to_pcm_bytes(audio)
 
@@ -187,3 +196,34 @@ class AudioPreprocessor:
                 + (1.0 - self.AGC_SMOOTHING) * desired_gain
             )
         return np.clip(audio * self._agc_gain, -1.0, 1.0)
+
+    # ── Stage 4: Spectral denoise (optional) ──────────────────────────────────
+
+    def _apply_spectral_denoise(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Spectral gating via the ``noisereduce`` library.
+
+        Lazy-imports the library so there is zero cost when disabled.
+        Falls back gracefully (returns audio unchanged) if the library
+        is not installed.
+        """
+        if self._nr_module is None:
+            try:
+                import noisereduce as nr
+
+                self._nr_module = nr
+                logger.info("noisereduce loaded — spectral denoising active")
+            except ImportError:
+                logger.warning(
+                    "noisereduce not installed — spectral denoising disabled. "
+                    "Install with: pip install noisereduce"
+                )
+                self._enable_spectral = False
+                return audio
+
+        return self._nr_module.reduce_noise(  # type: ignore[union-attr]
+            y=audio,
+            sr=self.sample_rate,
+            stationary=True,
+            prop_decrease=0.75,
+        )
