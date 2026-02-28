@@ -205,9 +205,9 @@ class VoiceSession:
             rms = compute_rms(chunk)
             viz.push_mic_rms(rms)
 
-            # Feed RMS to wake-word activator if in that mode
+            # Feed raw PCM to wake-word activator (needs audio, not just RMS)
             if isinstance(activator, WakeWordActivator):
-                activator.push_rms(rms)
+                activator.push_audio(chunk)
 
             # Check for activation events (non-blocking)
             while not activator._events.empty():
