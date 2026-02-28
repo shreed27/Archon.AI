@@ -37,6 +37,7 @@ google-genai = "^1.0"          # Unified Gemini SDK with Live API support
 sounddevice = "^0.4.6"        # Cross-platform audio I/O
 numpy = "^1.26"                # PCM audio buffer processing
 pynput = "^1.7.7"             # Global keyboard listener for PTT / wake-word
+openwakeword = ">=0.6.0"      # ML-based wake-word detection (ONNX inference)
 # ── Voice audio preprocessing (optional heavy deps) ───────────────────────
 noisereduce = {version = ">=3.0", optional = true}  # Spectral denoise (ARCHON_NOISE_REDUCE=1)
 
