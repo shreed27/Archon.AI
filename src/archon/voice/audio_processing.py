@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 # ── Configuration (overridable via env vars) ──────────────────────────────────
 
 _HPF_CUTOFF_HZ = float(os.getenv("ARCHON_HPF_CUTOFF", "80"))
+_NOISE_GATE_THRESHOLD = float(os.getenv("ARCHON_NOISE_GATE_THRESHOLD", "0.008"))
 
 
 class AudioPreprocessor:
@@ -54,6 +55,10 @@ class AudioPreprocessor:
     # High-pass filter
     HPF_CUTOFF_HZ: float = _HPF_CUTOFF_HZ
 
+    # Noise gate
+    NOISE_GATE_THRESHOLD: float = _NOISE_GATE_THRESHOLD
+    NOISE_GATE_ATTENUATION: float = 0.01  # -40 dB (soft, not hard zero)
+
     def __init__(
         self,
         sample_rate: int = 16_000,
@@ -66,8 +71,9 @@ class AudioPreprocessor:
         self._hpf_z2: float = 0.0
 
         logger.info(
-            "AudioPreprocessor initialised: hpf=%dHz",
+            "AudioPreprocessor initialised: hpf=%dHz gate=%.4f",
             int(self.HPF_CUTOFF_HZ),
+            self.NOISE_GATE_THRESHOLD,
         )
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -88,6 +94,7 @@ class AudioPreprocessor:
         audio = pcm_bytes_to_np(pcm_bytes)
 
         audio = self._apply_highpass(audio)
+        audio = self._apply_noise_gate(audio)
 
         return np_to_pcm_bytes(audio)
 
@@ -134,3 +141,18 @@ class AudioPreprocessor:
 
         self._hpf_z1, self._hpf_z2 = z1, z2
         return out
+
+    # ── Stage 2: Noise gate ───────────────────────────────────────────────────
+
+    def _apply_noise_gate(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Simple RMS-based noise gate with soft attenuation.
+
+        Below-threshold audio is attenuated by NOISE_GATE_ATTENUATION (-40 dB)
+        rather than hard-zeroed, which avoids audible clicks at gate
+        open/close transitions.
+        """
+        rms = float(np.sqrt(np.mean(audio**2)))
+        if rms < self.NOISE_GATE_THRESHOLD:
+            return audio * self.NOISE_GATE_ATTENUATION
+        return audio
