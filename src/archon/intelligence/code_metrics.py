@@ -91,3 +91,7 @@ class ComplexityVisitor(BaseMetricVisitor):
     def __init__(self):
         super().__init__()
         self.complexity = 1
+
+    def visit_If(self, node):
+        self.complexity += 1
+        self.generic_visit(node)
