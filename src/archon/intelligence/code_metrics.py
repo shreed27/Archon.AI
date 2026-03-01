@@ -25,3 +25,9 @@ class BaseMetricVisitor(ast.NodeVisitor):
     """Base class for metric visitors."""
     def __init__(self):
         super().__init__()
+
+class OperatorVisitor(BaseMetricVisitor):
+    def __init__(self):
+        super().__init__()
+        self.operators = set()
+        self.operator_count = 0
