@@ -51,3 +51,9 @@ class OperatorVisitor(BaseMetricVisitor):
     def visit_Div(self, node):
         self._record_operator('Div')
         self.generic_visit(node)
+
+class OperandVisitor(BaseMetricVisitor):
+    def __init__(self):
+        super().__init__()
+        self.operands = set()
+        self.operand_count = 0
