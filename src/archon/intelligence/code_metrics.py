@@ -76,3 +76,8 @@ def calculate_halstead_volume(h: HalsteadMetrics) -> float:
     if vocabulary == 0:
         return 0.0
     return length * math.log2(vocabulary)
+
+def calculate_halstead_difficulty(h: HalsteadMetrics) -> float:
+    if h.n1 == 0 or h.n2 == 0:
+        return 0.0
+    return (h.n1 / 2.0) * (h.N2 / float(h.n2))
