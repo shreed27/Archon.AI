@@ -61,3 +61,7 @@ class OperandVisitor(BaseMetricVisitor):
     def _record_operand(self, name: str):
         self.operands.add(name)
         self.operand_count += 1
+
+    def visit_Name(self, node):
+        self._record_operand(node.id)
+        self.generic_visit(node)
