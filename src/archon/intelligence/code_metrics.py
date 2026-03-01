@@ -39,3 +39,7 @@ class OperatorVisitor(BaseMetricVisitor):
     def visit_Add(self, node):
         self._record_operator('Add')
         self.generic_visit(node)
+
+    def visit_Sub(self, node):
+        self._record_operator('Sub')
+        self.generic_visit(node)
