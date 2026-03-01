@@ -115,3 +115,7 @@ def analyze_code_metrics(source_code: str) -> Dict[str, Any]:
     cv = ComplexityVisitor()
     cv.visit(tree)
     return {"complexity": cv.complexity}
+
+def get_file_metrics(filepath: str) -> Dict[str, Any]:
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return analyze_code_metrics(f.read())
