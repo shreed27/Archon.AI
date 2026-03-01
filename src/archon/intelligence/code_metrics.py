@@ -20,3 +20,8 @@ class HalsteadMetrics:
 class MaintainabilityMetrics:
     mi_original: float
     mi_sef: float
+
+class BaseMetricVisitor(ast.NodeVisitor):
+    """Base class for metric visitors."""
+    def __init__(self):
+        super().__init__()
