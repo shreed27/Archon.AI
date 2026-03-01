@@ -35,3 +35,7 @@ class OperatorVisitor(BaseMetricVisitor):
     def _record_operator(self, op_name: str):
         self.operators.add(op_name)
         self.operator_count += 1
+
+    def visit_Add(self, node):
+        self._record_operator('Add')
+        self.generic_visit(node)
