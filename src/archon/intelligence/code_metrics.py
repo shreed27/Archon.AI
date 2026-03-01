@@ -31,3 +31,7 @@ class OperatorVisitor(BaseMetricVisitor):
         super().__init__()
         self.operators = set()
         self.operator_count = 0
+
+    def _record_operator(self, op_name: str):
+        self.operators.add(op_name)
+        self.operator_count += 1
