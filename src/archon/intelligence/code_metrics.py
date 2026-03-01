@@ -86,3 +86,8 @@ def calculate_halstead_effort(h: HalsteadMetrics) -> float:
     volume = calculate_halstead_volume(h)
     difficulty = calculate_halstead_difficulty(h)
     return volume * difficulty
+
+class ComplexityVisitor(BaseMetricVisitor):
+    def __init__(self):
+        super().__init__()
+        self.complexity = 1
