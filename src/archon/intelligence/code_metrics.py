@@ -81,3 +81,8 @@ def calculate_halstead_difficulty(h: HalsteadMetrics) -> float:
     if h.n1 == 0 or h.n2 == 0:
         return 0.0
     return (h.n1 / 2.0) * (h.N2 / float(h.n2))
+
+def calculate_halstead_effort(h: HalsteadMetrics) -> float:
+    volume = calculate_halstead_volume(h)
+    difficulty = calculate_halstead_difficulty(h)
+    return volume * difficulty
