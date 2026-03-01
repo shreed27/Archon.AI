@@ -69,3 +69,10 @@ class OperandVisitor(BaseMetricVisitor):
     def visit_Constant(self, node):
         self._record_operand(str(node.value))
         self.generic_visit(node)
+
+def calculate_halstead_volume(h: HalsteadMetrics) -> float:
+    vocabulary = h.n1 + h.n2
+    length = h.N1 + h.N2
+    if vocabulary == 0:
+        return 0.0
+    return length * math.log2(vocabulary)
