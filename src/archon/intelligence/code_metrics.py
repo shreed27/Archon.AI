@@ -15,3 +15,8 @@ class HalsteadMetrics:
     n2: int  # distinct operands
     N1: int  # total operators
     N2: int  # total operands
+
+@dataclass
+class MaintainabilityMetrics:
+    mi_original: float
+    mi_sef: float
