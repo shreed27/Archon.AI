@@ -109,3 +109,9 @@ def calculate_maintainability_index(halstead_volume: float, cyclomatic_complexit
         return 100.0
     mi = 171.0 - 5.2 * math.log(halstead_volume) - 0.23 * cyclomatic_complexity - 16.2 * math.log(sloc)
     return max(0.0, min(100.0, mi * 100.0 / 171.0))
+
+def analyze_code_metrics(source_code: str) -> Dict[str, Any]:
+    tree = ast.parse(source_code)
+    cv = ComplexityVisitor()
+    cv.visit(tree)
+    return {"complexity": cv.complexity}
