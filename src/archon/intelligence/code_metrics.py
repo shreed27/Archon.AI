@@ -47,3 +47,7 @@ class OperatorVisitor(BaseMetricVisitor):
     def visit_Mult(self, node):
         self._record_operator('Mult')
         self.generic_visit(node)
+
+    def visit_Div(self, node):
+        self._record_operator('Div')
+        self.generic_visit(node)
