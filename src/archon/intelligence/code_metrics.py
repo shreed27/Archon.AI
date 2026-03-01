@@ -103,3 +103,9 @@ class ComplexityVisitor(BaseMetricVisitor):
     def visit_While(self, node):
         self.complexity += 1
         self.generic_visit(node)
+
+def calculate_maintainability_index(halstead_volume: float, cyclomatic_complexity: int, sloc: int) -> float:
+    if halstead_volume <= 0 or sloc <= 0:
+        return 100.0
+    mi = 171.0 - 5.2 * math.log(halstead_volume) - 0.23 * cyclomatic_complexity - 16.2 * math.log(sloc)
+    return max(0.0, min(100.0, mi * 100.0 / 171.0))
