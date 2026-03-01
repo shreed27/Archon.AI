@@ -57,3 +57,7 @@ class OperandVisitor(BaseMetricVisitor):
         super().__init__()
         self.operands = set()
         self.operand_count = 0
+
+    def _record_operand(self, name: str):
+        self.operands.add(name)
+        self.operand_count += 1
