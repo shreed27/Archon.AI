@@ -244,22 +244,17 @@ class ConversationalInterface:
         import readline  # Fixes arrow keys and history
         from archon.cli.ui import ArchonUI
 
+        # Print header ONCE on entry — never again inside the loop
+        file_count = ArchonUI.get_file_count(project_path)
+        ArchonUI.render_input_look(
+            project_path,
+            model_name=self.session.model_label,
+            file_count=file_count,
+            mode=self.session.mode_label,
+            mode_icon=self.session.mode_icon,
+        )
+
         while True:
-            # Refresh UI for next turn
-            console.clear()
-            ArchonUI.print_header(project_path.name)
-
-            # Count files
-            file_count = ArchonUI.get_file_count(project_path)
-
-            # Render the UI Layout — now passes mode + model from session
-            ArchonUI.render_input_look(
-                project_path,
-                model_name=self.session.model_label,
-                file_count=file_count,
-                mode=self.session.mode_label,
-                mode_icon=self.session.mode_icon,
-            )
 
             # Robust Input Prompt
             try:

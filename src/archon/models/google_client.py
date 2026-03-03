@@ -27,6 +27,7 @@ class GoogleClient:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        use_search_grounding: bool = False,
     ) -> str:
         """
         Send chat completion request.
@@ -55,10 +56,13 @@ class GoogleClient:
                 max_output_tokens=max_tokens,
             )
 
-            response = await gemini_model.generate_content_async(
-                prompt,
-                generation_config=generation_config,
-            )
+            kwargs = {"generation_config": generation_config}
+            if use_search_grounding:
+                kwargs["tools"] = (
+                    "google_search_retrieval"  # Google Search grounding like Gemini CLI
+                )
+
+            response = await gemini_model.generate_content_async(prompt, **kwargs)
 
             return response.text
 

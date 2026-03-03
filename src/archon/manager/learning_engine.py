@@ -59,7 +59,9 @@ class LearningEngine:
 
         if CHROMA_AVAILABLE:
             try:
-                self.chroma_client = chromadb.PersistentClient(path=str(memory_dir))
+                self.chroma_client = chromadb.PersistentClient(
+                    path=str(memory_dir), settings=Settings(anonymized_telemetry=False)
+                )
 
                 self.collection = self.chroma_client.get_or_create_collection(
                     name="task_history", metadata={"hnsw:space": "cosine"}

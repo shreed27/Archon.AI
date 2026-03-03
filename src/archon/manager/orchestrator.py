@@ -128,6 +128,13 @@ class ManagerOrchestrator:
 
         logger.info(f"Parsing goal: {goal}")
 
+        # Check for .archon.md project directives, equivalent to .gemini.md in Gemini CLI
+        project_context = ""
+        archon_md_path = self.project_path / ".archon.md"
+        if archon_md_path.exists():
+            with open(archon_md_path, "r", encoding="utf-8") as f:
+                project_context = f"\n\nProject Directives (.archon.md):\n{f.read()}"
+
         # Use GPT-4 for goal understanding (high reasoning task)
         from archon.models.openai_client import OpenAIClient
 
@@ -135,6 +142,7 @@ class ManagerOrchestrator:
 
         prompt = f"""
 You are the Manager of ARCHON, an AI engineering organization.
+{project_context}
 
 User Goal: {goal}
 

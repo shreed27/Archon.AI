@@ -3,7 +3,7 @@ OpenAI Client - GPT-4 integration.
 """
 
 import os
-from typing import List, Dict, Optional, AsyncIterator
+from typing import List, Dict, Optional, AsyncIterator, Any
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 

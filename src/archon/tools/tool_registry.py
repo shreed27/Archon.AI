@@ -16,6 +16,7 @@ class ToolCategory(str, Enum):
     DEPLOYMENT = "deployment"
     ANALYSIS = "analysis"
     DOCUMENTATION = "documentation"
+    MCP = "mcp"  # Model Context Protocol support like Gemini CLI
 
 
 @dataclass
@@ -31,6 +32,8 @@ class ToolSpec:
     optional_args: List[str] = None
     output_format: str = "text"  # text, json, svg, etc.
     quality_score: float = 0.8  # Historical quality score
+    is_mcp_server: bool = False
+    mcp_connection_params: Dict = None
 
     def __post_init__(self):
         if self.required_args is None:
@@ -123,6 +126,21 @@ class ToolRegistry:
                 optional_args=["builder"],
                 output_format="html",
                 quality_score=0.85,
+            )
+        )
+
+        # MCP Servers (Gemini CLI feature)
+        self.register(
+            ToolSpec(
+                name="mcp-github",
+                category=ToolCategory.MCP,
+                command="npx @modelcontextprotocol/server-github",
+                description="MCP Server for native GitHub integration (PR reviews, issue triage)",
+                install_command="npm install -g @modelcontextprotocol/server-github",
+                required_args=[],
+                output_format="json",
+                quality_score=0.90,
+                is_mcp_server=True,
             )
         )
 

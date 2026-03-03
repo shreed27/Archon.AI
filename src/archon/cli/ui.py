@@ -36,59 +36,21 @@ class ArchonUI:
         return count
 
     @staticmethod
-    def print_header(project_name: str = "Unknown"):
-        """Prints the Cyberpunk / Web3 style header."""
+    def print_header(project_name: str = "Archon.AI"):
+        """Prints the minimal Gemini CLI style header."""
 
-        # 1. The Glitch/Cyberpunk Header
-        archon_art = """
-    █████╗ ██████╗  ██████╗██╗  ██╗ ██████╗ ███╗   ██╗
-   ██╔══██╗██╔══██╗██╔════╝██║  ██║██╔═══██╗████╗  ██║
-   ███████║██████╔╝██║     ███████║██║   ██║██╔██╗ ██║
-   ██╔══██║██╔══██╗██║     ██╔══██║██║   ██║██║╚██╗██║
-   ██║  ██║██║  ██║╚██████╗██║  ██║╚██████╔╝██║ ╚████║
-   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-"""
-        # Neon Gradient: Electric Blue -> Neon Pink
-        styled_art = Text(archon_art)
-        styled_art.stylize("bold color(39)", 0, 70)  # Cyan
-        styled_art.stylize("bold color(63)", 70, 140)  # Blue
-        styled_art.stylize("bold color(201)", 140, 210)  # Magenta
+        archon_art = """▝▜▄  
+  ▝▜▄
+ ▗▟▀ 
+▝▀    """
 
-        # Frame the header
-        header_panel = Panel(
-            Align.center(styled_art),
-            box=box.HEAVY,
-            border_style="color(39)",
-            title="[bold italic color(82)] SYSTEM::ONLINE [/bold italic color(82)]",
-            subtitle="[bold color(226)] v0.1.0-ALPHA // NEURAL LINK ESTABLISHED [/bold color(226)]",
-            padding=(1, 2),
+        console.print(
+            Text.assemble(
+                (archon_art, "bold color(39)"),
+                (" Archon CLI", "bold white"),
+                (" v0.1.0-ALPHA", "dim white"),
+            )
         )
-        console.print(header_panel)
-
-        # 2. Viral Capabilities Grid
-        status_table = Table(show_header=False, show_edge=False, box=None, expand=True)
-        status_table.add_column("1", ratio=1, justify="center")
-        status_table.add_column("2", ratio=1, justify="center")
-        status_table.add_column("3", ratio=1, justify="center")
-
-        status_table.add_row(
-            Panel(
-                "[bold white] 🦞 BUILD FULL-STACK[/bold white]",
-                box=box.ROUNDED,
-                style="color(235)",
-            ),
-            Panel(
-                "[bold white] 🦞 AGI REFACTORING[/bold white]",
-                box=box.ROUNDED,
-                style="color(235)",
-            ),
-            Panel(
-                "[bold white] 🦞 SHIP TO PROD[/bold white]",
-                box=box.ROUNDED,
-                style="color(235)",
-            ),
-        )
-        console.print(status_table)
         console.print("")
 
     @staticmethod
