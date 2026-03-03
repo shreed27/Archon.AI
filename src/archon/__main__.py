@@ -9,7 +9,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from archon.cli.commands import start_command, resume_command, status_command
-from archon.cli.voice_commands import voice_command
 
 # Load environment variables (API keys etc.)
 load_dotenv()
