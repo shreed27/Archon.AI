@@ -60,12 +60,13 @@ def main():
 
     try:
         if args.command == "start":
-            asyncio.run(start_command(project_path))
+            start_command(project_path)
         elif args.command == "resume":
-            asyncio.run(resume_command(project_path))
+            resume_command(project_path)
         elif args.command == "status":
-            asyncio.run(status_command(project_path))
+            status_command(project_path)
         elif args.command == "voice":
+            from archon.cli.voice_commands import voice_command
             import os
 
             activation = getattr(args, "activation", None) or os.getenv(
