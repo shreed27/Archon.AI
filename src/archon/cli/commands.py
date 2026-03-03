@@ -1,105 +1,110 @@
 """
-CLI command implementations.
+CLI command implementations — now backed by the Textual TUI.
+
+Important: All setup (mode/model pickers) happens SYNCHRONOUSLY before the
+Textual app starts. Textual's app.run() manages its own event loop so it
+MUST NOT be called from inside an existing asyncio event loop (e.g. via
+asyncio.run → async fn → app.run would nest two loops and crash).
+
+Pattern used:
+    main() [sync]
+      └─ start_command() [sync]
+            ├─ _build_session()    ← Rich pickers, fully sync
+            └─ ArchonApp.run()    ← Textual owns the event loop from here
 """
 
 import asyncio
 from pathlib import Path
 from rich.console import Console
-from rich.prompt import Prompt
 
-from archon.manager.orchestrator import ManagerOrchestrator
-from archon.cli.conversation import ConversationalInterface
-from archon.cli.ui import ArchonUI, console
-from archon.cli.session_config import SessionConfig
+from archon.cli.session_config import SessionConfig, ExecutionMode
+
+console = Console()
 
 
-async def _build_session(project_path: Path) -> SessionConfig:
+# ─────────────────────────────────────────────────────────────────────────────
+# Startup setup — pickers run SYNC before TUI takes over the event loop
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _print_logo() -> None:
+    """Print the Archon logo once to stdout before the TUI launches."""
+    from archon.cli.ui import ArchonUI
+
+    ArchonUI.print_header()
+
+
+def _build_session(project_path: Path) -> SessionConfig:
     """
-    Run the interactive startup flow:
-      1. Show header
-      2. Mode picker  (Plan / Fast)
-      3. Model picker
-      4. Return configured SessionConfig
+    SYNCHRONOUS startup flow (bypassed interactive menus to match Gemini CLI).
     """
-    ArchonUI.print_header(project_path.name)
-
-    # ── Step 1: Mode selection ────────────────────────────────────────────────
-    mode = ArchonUI.show_mode_selector()
-
-    # ── Step 2: Model selection ───────────────────────────────────────────────
-    model = ArchonUI.show_model_selector()
-
-    session = SessionConfig(
-        mode=mode,
-        model=model,
+    return SessionConfig(
+        mode=ExecutionMode.FAST,
+        model="gpt-4o",  # or any default model
         project_name=project_path.name,
     )
 
-    console.print(
-        f"\n  [bold color(82)]✓[/bold color(82)] Session configured: "
-        f"[bold color(226)]{session.mode_icon} {session.mode_label}[/bold color(226)]  ·  "
-        f"[bold]{session.model_icon} {session.model_label}[/bold]\n"
-    )
 
-    return session
+# ─────────────────────────────────────────────────────────────────────────────
+# Commands — sync entry points called directly from main()
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-async def start_command(project_path: Path):
+def start_command(project_path: Path) -> None:
     """
-    Start new ARCHON session with conversational interface.
+    Start a new ARCHON session.
 
-    Flow:
-      1. Show header
-      2. Mode picker (Plan / Fast)
-      3. Model picker
-      4. Initialize Manager
-      5. Launch REPL
+    SYNC function — called directly from main() NOT via asyncio.run().
+    Textual's app.run() manages the event loop itself.
     """
-    # Interactive startup — mode + model selection
-    session = await _build_session(project_path)
+    session = _build_session(project_path)
+
+    if session.mode == ExecutionMode.VOICE:
+        from archon.cli.voice_commands import voice_command
+
+        asyncio.run(voice_command(project_path, voice_name=session.voice_name))
+        return
+
+    # Initialize the manager synchronously via a quick asyncio.run before TUI
+    from archon.manager.orchestrator import ManagerOrchestrator
 
     manager = ManagerOrchestrator(str(project_path))
-    await manager.initialize()
+    asyncio.run(manager.initialize())
 
-    conversation = ConversationalInterface(manager, session)
-    await conversation.start_repl(project_path)
+    # Now launch TUI — it owns the event loop from this point
+    from archon.cli.tui import ArchonApp
+
+    app = ArchonApp(project_path=project_path, session=session, manager=manager)
+    app.run()  # ← Textual calls asyncio.run() itself here
 
 
-async def resume_command(project_path: Path):
-    """
-    Resume existing ARCHON session.
-    Still prompts for mode + model since those are per-session preferences.
-    """
+def resume_command(project_path: Path) -> None:
+    """Resume an existing ARCHON session."""
     archon_dir = project_path / ".archon"
     if not archon_dir.exists():
         console.print("[red]No ARCHON session found. Use 'archon start'.[/red]")
         return
 
-    # Interactive startup — mode + model selection
-    session = await _build_session(project_path)
+    session = _build_session(project_path)
+
+    from archon.manager.orchestrator import ManagerOrchestrator
 
     manager = ManagerOrchestrator(str(project_path))
-    await manager.load_state()
+    asyncio.run(manager.load_state())
 
-    conversation = ConversationalInterface(manager, session)
-    console.print("[bold cyan]Manager:[/bold cyan] Session resumed. Ready for instructions.")
-    await conversation.start_repl(project_path)
+    from archon.cli.tui import ArchonApp
+
+    app = ArchonApp(project_path=project_path, session=session, manager=manager)
+    app.run()
 
 
-async def status_command(project_path: Path):
+def status_command(project_path: Path) -> None:
     """
-    Show current project status.
-
-    Displays:
-    - Active tasks
-    - Completed tasks
-    - Agent metrics
-    - File ownership map
-    - Recent decisions
+    Show current project status (non-interactive, Rich output).
     """
-
     from rich.table import Table
     from rich.panel import Panel
+    from archon.manager.orchestrator import ManagerOrchestrator
 
     archon_dir = project_path / ".archon"
 
