@@ -1,0 +1,40 @@
+{
+  "family": "archon-task",
+  "networkMode": "awsvpc",
+  "executionRoleArn": "arn:aws:iam::000518066116:role/archon-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::000518066116:role/archon-task-role",
+  "containerDefinitions": [
+    {
+      "name": "archon-container",
+      "image": "000518066116.dkr.ecr.ap-south-1.amazonaws.com/archon:v3",
+      "essential": true,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "ap-south-1"
+        },
+        {
+          "name": "ARCHON_VOICE",
+          "value": "Aditi"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/archon",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048",
+  "runtimePlatform": {
+    "cpuArchitecture": "ARM64",
+    "operatingSystemFamily": "LINUX"
+  }
+}
