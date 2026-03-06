@@ -18,7 +18,7 @@ class BackendAgent(BaseAgent):
     - Backend testing
     """
 
-    async def execute(self, task: Task, model: ModelType) -> TaskResult:
+    async def execute(self, task: Task, model: ModelType, project_memory=None) -> TaskResult:
         """Execute backend development task."""
 
         self.logger.info(f"Executing backend task: {task.description}")
@@ -29,6 +29,8 @@ class BackendAgent(BaseAgent):
         prompt = self._build_prompt(task)
 
         # Call model
+        if project_memory:
+            prompt += f"\n\nProject Memory Summary:\n{project_memory.get_summary()}\n"
         response = await self._call_model(model, prompt)
 
         # Parse response
