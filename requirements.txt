@@ -11,3 +11,5 @@ tree-sitter
 pydantic
 python-dotenv
 pyyaml
+boto3
+amazon-transcribe>=0.3.15
