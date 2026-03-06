@@ -7,6 +7,7 @@ from typing import Dict, Any
 
 from archon.utils.schemas import Task, TaskResult, AgentType
 from archon.manager.model_router import ModelType
+from archon.models.model_router import ModelRouter
 from archon.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,9 +29,10 @@ class BaseAgent(ABC):
     def __init__(self, agent_type: AgentType):
         self.agent_type = agent_type
         self.logger = get_logger(f"agent.{agent_type.value}")
+        self.model_router = ModelRouter()
 
     @abstractmethod
-    async def execute(self, task: Task, model: ModelType) -> TaskResult:
+    async def execute(self, task: Task, model: ModelType, project_memory=None) -> TaskResult:
         """
         Execute task using assigned model.
 
@@ -74,33 +76,28 @@ class BaseAgent(ABC):
             "estimated_time_hours": 1.0,
         }
 
-    async def _call_model(self, model: ModelType, prompt: str) -> Dict[str, Any]:
+    async def _call_model(self, model: Any, messages: Any) -> Dict[str, Any]:
         """
-        Call AI model with prompt.
-
-        Routes to appropriate model client based on ModelType.
+        Call AI model using the unified ModelRouter.
         """
+        if isinstance(messages, str):
+            messages = [{"role": "user", "content": messages}]
 
-        if model in [ModelType.GPT4, ModelType.GPT4_TURBO]:
-            from archon.models.openai_client import OpenAIClient
+        response_text = await self.model_router.generate(messages)
 
-            client = OpenAIClient()
-            return await client.complete(prompt, model.value)
+        # Try to parse as JSON if it looks like JSON
+        import json
 
-        elif model in [ModelType.CLAUDE_OPUS, ModelType.CLAUDE_SONNET]:
-            from archon.models.anthropic_client import AnthropicClient
+        try:
+            start = response_text.find("{")
+            end = response_text.rfind("}")
+            if start != -1 and end != -1:
+                parsed = json.loads(response_text[start : end + 1])
+                return {"parsed_json": parsed, "content": response_text}
+        except Exception:
+            pass
 
-            client = AnthropicClient()
-            return await client.complete(prompt, model.value)
-
-        elif model in [ModelType.GEMINI_PRO, ModelType.GEMINI_FLASH]:
-            from archon.models.google_client import GoogleClient
-
-            client = GoogleClient()
-            return await client.complete(prompt, model.value)
-
-        else:
-            raise ValueError(f"Unknown model type: {model}")
+        return {"content": response_text, "parsed_json": {}}
 
 
 # Agent registry
@@ -116,7 +113,7 @@ def get_agent(agent_type: AgentType) -> BaseAgent:
     """Get agent instance for agent type."""
 
     if isinstance(agent_type, str):
-        agent_type = AgentType(agent_type)
+        agent_type = AgentType.from_str(agent_type)
 
     if agent_type not in _AGENTS:
         raise ValueError(f"No agent registered for type: {agent_type}")
