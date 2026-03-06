@@ -52,7 +52,7 @@ class DatabaseAgent(BaseAgent):
 
     PREFERRED_MODEL = ModelType.CLAUDE_OPUS
 
-    async def execute(self, task: Task, model: ModelType) -> TaskResult:
+    async def execute(self, task: Task, model: ModelType, project_memory=None) -> TaskResult:
         """Execute database design/optimization task."""
 
         self.logger.info(f"Executing database task: {task.description}")
@@ -60,6 +60,8 @@ class DatabaseAgent(BaseAgent):
         start_time = datetime.now()
 
         prompt = self._build_prompt(task)
+        if project_memory:
+            prompt += f"\n\nProject Memory Summary:\n{project_memory.model_dump_json(indent=2)}\n"
         response = await self._call_model(model, prompt)
         output = response.get("parsed_json", response)
 
