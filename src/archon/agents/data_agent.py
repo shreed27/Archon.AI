@@ -61,7 +61,7 @@ class DataAgent(BaseAgent):
 
     PREFERRED_MODEL = ModelType.GEMINI_PRO
 
-    async def execute(self, task: Task, model: ModelType) -> TaskResult:
+    async def execute(self, task: Task, model: ModelType, project_memory=None) -> TaskResult:
         """Execute data engineering / ML task."""
 
         self.logger.info(f"Executing data task: {task.description}")
@@ -69,6 +69,8 @@ class DataAgent(BaseAgent):
         start_time = datetime.now()
 
         prompt = self._build_prompt(task)
+        if project_memory:
+            prompt += f"\n\nProject Memory Summary:\n{project_memory.get_summary()}\n"
         response = await self._call_model(model, prompt)
         output = response.get("parsed_json", response)
 
