@@ -18,16 +18,14 @@ async def voice_command(
     project_path: Path,
     activation: str = "vad",
     voice_name: str = "Puck",
+    regional: bool = False,
+    language: str = "hi-IN",
 ) -> None:
     """
     Start a J.A.R.V.I.S. voice session.
-
-    Args:
-        project_path: Absolute path to the project directory.
-        activation:   Activation mode string: 'vad' | 'ptt' | 'wake'.
-        voice_name:   Gemini voice persona (default: env ARCHON_VOICE or 'Puck').
     """
     from archon.cli.ui import ArchonUI
+    from archon.manager.orchestrator import ManagerOrchestrator
 
     # Show the normal header
     ArchonUI.print_header(project_path.name)
@@ -43,29 +41,46 @@ async def voice_command(
     }
     activation_mode = activation_mode_map.get(activation.lower(), VoiceActivation.VAD)
 
-    # Check API key early and give a clear error
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
+    live_client = None
+    if regional:
         console.print(
-            "\n[bold red]🔑 GOOGLE_API_KEY not set.[/bold red]\n"
-            "Voice mode requires a Google API key with billing enabled.\n\n"
-            "  [bold]Set it:[/bold]  export GOOGLE_API_KEY='AIza...'\n"
-            "  [bold]Or:[/bold]     add it to your .env file\n\n"
-            "[dim]Falling back to text REPL...[/dim]\n"
+            f"[bold color(201)]🇮🇳  AI FOR BHARAT MODE ACTIVATED ({language})[/bold color(201)]"
         )
-        # Fall back to the normal text REPL
-        from archon.cli.commands import start_command
 
-        await start_command(project_path)
-        return
+        # Initialize Manager Orchestrator for AWS Brain
+        manager = ManagerOrchestrator(str(project_path))
+        await manager.initialize()
 
-    # Import here to avoid circular deps and optional-import issues at module load
+        from archon.voice.aws_live_client import AWSLiveClient
+
+        live_client = AWSLiveClient(manager, language_code=language)
+
+        # Verify AWS credentials
+        if not os.getenv("AWS_ACCESS_KEY_ID") or not os.getenv("AWS_SECRET_ACCESS_KEY"):
+            console.print(
+                "[yellow]Warning: AWS credentials not found in environment. STT/TTS may fail.[/yellow]"
+            )
+    else:
+        # Check Gemini API key early
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            console.print(
+                "\n[bold red]🔑 GOOGLE_API_KEY not set.[/bold red]\n"
+                "Voice mode requires a Google API key with billing enabled.\n"
+            )
+            # Fall back to text REPL
+            from archon.cli.commands import start_command
+
+            start_command(project_path)
+            return
+
+    # Import here to avoid circular deps
     from archon.voice.voice_session import VoiceSession
 
     session = VoiceSession(
         project_path=project_path,
         activation=activation_mode,
         voice_name=voice_name,
-        api_key=api_key,
+        live_client=live_client,
     )
     await session.run()
