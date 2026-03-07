@@ -206,6 +206,7 @@ class SessionConfig:
     # Voice-specific settings (only relevant when mode == VOICE)
     voice_activation: VoiceActivation = VoiceActivation.VAD
     voice_name: str = "Puck"  # Gemini voice: Puck, Kore, Aoede, Charon, Fenrir
+    initial_goal: Optional[str] = None
 
     @property
     def mode_label(self) -> str:
