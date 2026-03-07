@@ -59,23 +59,37 @@ class LearningEngine:
 
         if CHROMA_AVAILABLE:
             try:
-                self.chroma_client = chromadb.PersistentClient(
-                    path=str(memory_dir), settings=Settings(anonymized_telemetry=False)
-                )
-
-                self.collection = self.chroma_client.get_or_create_collection(
-                    name="task_history", metadata={"hnsw:space": "cosine"}
-                )
-                logger.info("Vector Memory (ChromaDB) initialized")
+                self._initialize_chroma(memory_dir)
             except Exception as e:
-                logger.error(f"Failed to initialize Vector Memory: {e}")
-                self.chroma_client = None
+                if "no such column: collections.topic" in str(e) or "OperationalError" in str(e):
+                    logger.warning("Vector Memory schema mismatch. Wiping and recreating...")
+                    import shutil
+
+                    if memory_dir.exists():
+                        shutil.rmtree(memory_dir)
+                    try:
+                        self._initialize_chroma(memory_dir)
+                    except Exception as retry_e:
+                        logger.error(f"Failed to initialize Vector Memory after retry: {retry_e}")
+                else:
+                    logger.error(f"Failed to initialize Vector Memory: {e}")
+                    self.chroma_client = None
         else:
             logger.warning("ChromaDB not installed. Vector Memory disabled.")
 
         # Load existing data
         await self._load_metrics()
         await self._load_outcomes()
+
+    def _initialize_chroma(self, memory_dir: Path):
+        """Initialize ChromaDB for Learning Engine."""
+        self.chroma_client = chromadb.PersistentClient(
+            path=str(memory_dir), settings=Settings(anonymized_telemetry=False)
+        )
+        self.collection = self.chroma_client.get_or_create_collection(
+            name="task_history", metadata={"hnsw:space": "cosine"}
+        )
+        logger.info("Vector Memory (ChromaDB) initialized")
 
     async def record_outcome(self, task: Task, result: TaskResult):
         """
