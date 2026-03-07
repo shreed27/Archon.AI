@@ -43,6 +43,13 @@ class ModelType(Enum):
     # Open-source / other
     GPT_OSS_120B = "gpt-oss-120b-medium"
 
+    # Amazon Bedrock
+    BEDROCK_CLAUDE_3_5_SONNET = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+    BEDROCK_CLAUDE_3_HAIKU = "anthropic.claude-3-haiku-20240307-v1:0"
+    BEDROCK_LLAMA_3_70B = "meta.llama3-70b-instruct-v1:0"
+    BEDROCK_LLAMA_3_8B = "meta.llama3-8b-instruct-v1:0"
+    BEDROCK_TITAN_TEXT_EXPRESS = "amazon.titan-text-express-v1"
+
 
 @dataclass
 class ModelSelectionCriteria:
@@ -97,7 +104,31 @@ class ModelRouter:
             "cost_per_1k_tokens": 0.0001,
             "best_for": ["frontend_ui", "fast_iteration", "documentation"],
         },
+        # Bedrock Models
+        ModelType.BEDROCK_CLAUDE_3_5_SONNET: {
+            "max_context": 200_000,
+            "reasoning_strength": 0.95,
+            "speed_score": 0.8,
+            "cost_per_1k_tokens": 0.003,  # ~$0.003 -> ~0.25 INR
+            "best_for": ["complex_logic", "architecture", "security"],
+        },
+        ModelType.BEDROCK_LLAMA_3_70B: {
+            "max_context": 8_000,
+            "reasoning_strength": 0.88,
+            "speed_score": 0.7,
+            "cost_per_1k_tokens": 0.0009,
+            "best_for": ["general_purpose", "structured_data"],
+        },
+        ModelType.BEDROCK_TITAN_TEXT_EXPRESS: {
+            "max_context": 8_000,
+            "reasoning_strength": 0.75,
+            "speed_score": 0.9,
+            "cost_per_1k_tokens": 0.0002,
+            "best_for": ["simple_tasks", "classification"],
+        },
     }
+
+    USD_TO_INR = 83.5  # Fixed conversion for demonstration
 
     def __init__(self):
         self.historical_weights: Dict[str, Dict[ModelType, float]] = {}
@@ -136,9 +167,14 @@ class ModelRouter:
         # Select best model
         best_model = max(scores, key=scores.get)
 
+        # Calculate cost in INR
+        capabilities = self.MODEL_CAPABILITIES.get(best_model, {})
+        usd_cost = capabilities.get("cost_per_1k_tokens", 0)
+        inr_cost = usd_cost * self.USD_TO_INR
+
         logger.info(
             f"Selected {best_model.value} for {task.agent_type} task "
-            f"(score: {scores[best_model]:.2f})"
+            f"(score: {scores[best_model]:.2f}, cost: {inr_cost:.4f} INR/1k tokens)"
         )
 
         return best_model
