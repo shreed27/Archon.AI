@@ -99,21 +99,59 @@ class ConversationalInterface:
 
         console.print("\n[bold green]🚀 Executing plan...[/bold green]\n")
 
+        agents_status = {}
+        for t in spec.get("tasks", []):
+            agent = t.get("agent", "UnknownAgent")
+            if agent not in agents_status:
+                agents_status[agent] = "waiting"
+
+        def generate_table():
+            table = Table(
+                title="Execution Status", box=None, show_header=False, title_justify="left"
+            )
+            table.add_column("Agent", style="bold cyan")
+            table.add_column("Arrow")
+            table.add_column("Status")
+
+            for ag, st in agents_status.items():
+                if st == "completed":
+                    color = "green"
+                elif st == "running":
+                    color = "cyan"
+                else:
+                    color = "dim"
+                table.add_row(ag, "→", f"[{color}]{st}[/{color}]")
+            return table
+
         # Execute with progress tracking
-        async for update in self.manager.execute_plan(spec):
-            if update["type"] == "task_started":
-                console.print(f"[cyan]→[/cyan] {update['agent']} starting: {update['description']}")
-            elif update["type"] == "task_completed":
-                console.print(
-                    f"[green]✓[/green] {update['agent']} completed: {update['description']}"
-                )
-            elif update["type"] == "deliberation_needed":
-                console.print(f"[yellow]⚠[/yellow] Conflict detected: {update['conflict_type']}")
-                await self._handle_deliberation(update["conflict"])
-            elif update["type"] == "tool_execution":
-                console.print(f"[blue]🔧[/blue] Using external tool: {update['tool_name']}")
-            elif update["type"] == "quality_gate_failed":
-                console.print(f"[red]✗[/red] Quality gate failed: {update['reason']}")
+        with Live(generate_table(), refresh_per_second=4, console=console) as live:
+            async for update in self.manager.execute_plan(spec):
+                if update["type"] == "task_started":
+                    agents_status[update["agent"]] = "running"
+                    live.update(generate_table())
+                elif update["type"] == "task_completed":
+                    agents_status[update["agent"]] = "completed"
+                    live.update(generate_table())
+                elif update["type"] == "deliberation_needed":
+                    console.print(
+                        f"[yellow]⚠[/yellow] Conflict detected: {update['conflict_type']}"
+                    )
+                    await self._handle_deliberation(update["conflict"])
+                elif update["type"] == "conflict_resolved":
+                    console.print(f"\n[bold yellow]⚠ Conflict detected:[/bold yellow]")
+                    console.print(f"File: {update['file']}")
+                    console.print(f"Owned by: {update['owner']}")
+                    console.print(f"Attempted modification by: {update['attempted']}")
+                    console.print("Arbitrator evaluating versions...")
+                    console.print(
+                        f"[bold green]✔ Selected version: {update['winner']}[/bold green]\n"
+                    )
+                elif update["type"] == "tool_execution":
+                    console.print(f"[blue]🔧[/blue] Using external tool: {update['tool_name']}")
+                elif update["type"] == "quality_gate_failed":
+                    console.print(f"[red]✗[/red] Quality gate failed: {update['reason']}")
+                elif update["type"] == "execution_summary":
+                    console.print(f"\n{update['summary']}")
 
         console.print("\n[bold green]✅ Plan execution complete![/bold green]")
 
