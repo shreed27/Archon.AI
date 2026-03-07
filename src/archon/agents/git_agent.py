@@ -47,7 +47,7 @@ class GitAgent(BaseAgent):
 
     PREFERRED_MODEL = ModelType.CLAUDE_SONNET
 
-    async def execute(self, task: Task, model: ModelType) -> TaskResult:
+    async def execute(self, task: Task, model: ModelType, project_memory=None) -> TaskResult:
         """Execute git workflow task."""
 
         self.logger.info(f"Executing git task: {task.description}")
@@ -55,6 +55,8 @@ class GitAgent(BaseAgent):
         start_time = datetime.now()
 
         prompt = self._build_prompt(task)
+        if project_memory:
+            prompt += f"\n\nProject Memory Summary:\n{project_memory.get_summary()}\n"
         response = await self._call_model(model, prompt)
         output = response.get("parsed_json", response)
 
