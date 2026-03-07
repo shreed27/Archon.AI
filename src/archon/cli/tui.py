@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer, Vertical
 from textual.css.query import NoMatches
+from textual import events
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import (
@@ -20,7 +21,10 @@ from textual.widgets import (
     Label,
     LoadingIndicator,
     Static,
+    OptionList,
 )
+from textual.screen import ModalScreen
+from textual.widgets.option_list import Option
 
 from archon.cli.session_config import ExecutionMode, SessionConfig
 
@@ -116,9 +120,10 @@ class MessageBubble(Static):
             self.styles.padding = (0, 1)
         else:
             prefix = "✦ "
-            color = "#f8f8f2"
             yield Static(prefix, classes="bubble-prefix")
-            yield Static(f"[{color}]{self.content}[/{color}]", classes="bubble-content")
+            content_widget = Static(self.content, classes="bubble-content")
+            content_widget.styles.color = "#f8f8f2"
+            yield content_widget
 
 
 class ThinkingIndicator(Static):
@@ -146,58 +151,89 @@ class ThinkingIndicator(Static):
         yield LoadingIndicator()
 
 
+class InlineModelSelector(Widget):
+    """An inline model selector for switching AI models within the chat."""
+
+    DEFAULT_CSS = """
+    InlineModelSelector {
+        width: 100%;
+        height: auto;
+        margin: 1 0;
+        padding: 1 2;
+        background: #282a36;
+        border: solid #bd93f9;
+        display: block;
+    }
+    #selector-title {
+        color: #bd93f9;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    OptionList {
+        background: transparent;
+        border: none;
+        height: 8;
+    }
+    #selector-hint {
+        color: #6272a4;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, options: list[dict], on_select) -> None:
+        super().__init__()
+        self.options = options
+        self.on_select_callback = on_select
+
+    def compose(self) -> ComposeResult:
+        yield Label("Select AI Model", id="selector-title")
+        option_list = OptionList(id="inline-model-options")
+        for opt in self.options:
+            option_list.add_option(Option(opt["name"], id=opt["id"]))
+        yield option_list
+        yield Label("↑ ↓ to navigate • Enter to select", id="selector-hint")
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.on_select_callback(event.option.id)
+        self.remove()
+
+
 class FooterBlock(Container):
-    """The pinned bottom block from Archon CLI."""
+    """The pinned bottom block - refined and minimal."""
 
     DEFAULT_CSS = """
     FooterBlock {
         dock: bottom;
         height: auto;
         width: 100%;
+        background: #1e1e2e;
     }
     .divider {
         content-align: center middle;
-        color: #44475a;
+        color: #313244;
         background: transparent;
         height: 1;
-    }
-    #shortcuts-hint {
-        content-align: right middle;
-        color: #6272a4;
-        height: 1;
-        padding: 0 1;
-    }
-    #skills-row {
-        layout: horizontal;
-        height: 1;
-        padding: 0 1;
-        background: #282a36;
-    }
-    #skills-left {
-        width: 1fr;
-        color: #6272a4;
-    }
-    #skills-right {
-        width: auto;
-        color: #6272a4;
+        margin: 0;
     }
     #input-row {
-        height: 1;
-        padding: 0 1;
-        background: #282a36;
+        height: 3;
+        padding: 0 2;
+        background: transparent;
         layout: horizontal;
+        align: left middle;
     }
     #input-prefix {
         width: 2;
-        color: #bd93f9;
+        color: #fab387;
         text-style: bold;
+        margin-top: 1;
     }
     #chat-input {
         width: 1fr;
-        height: 1;
+        height: 3;
         border: none;
         background: transparent;
-        padding: 0;
+        padding: 1 0;
     }
     #chat-input:focus {
         border: none;
@@ -205,19 +241,23 @@ class FooterBlock(Container):
     #status-row {
         layout: horizontal;
         height: 1;
-        padding: 0 1;
-        color: #f8f8f2;
+        padding: 0 2;
+        color: #cdd6f4;
+        background: #181825;
     }
     #status-left {
         width: 1fr;
+        color: #fab387;
     }
     #status-middle {
         width: 1fr;
         content-align: center middle;
-        color: #ff5555;
+        color: #a6adc8;
     }
     #status-right {
-        width: auto;
+        width: 1fr;
+        content-align: right middle;
+        color: #89b4fa;
     }
     """
 
@@ -232,30 +272,19 @@ class FooterBlock(Container):
         term_width = shutil.get_terminal_size().columns
         div = "─" * term_width
 
-        yield Static("? for shortcuts", id="shortcuts-hint")
         yield Static(div, classes="divider")
-
         yield Container(
-            Static("shift+tab to accept edits", id="skills-left"),
-            Static("1 ARCHON.md file | 84 skills", id="skills-right"),
-            id="skills-row",
-        )
-        yield Static(div, classes="divider")
-
-        yield Container(
-            Static(">", id="input-prefix"),
+            Static("archon › ", id="input-prefix"),
             Input(
-                placeholder="  Type your message or @path/to/file",
+                placeholder="Type a message, /model to switch, or exit to quit",
                 id="chat-input",
             ),
             id="input-row",
         )
-        yield Static(div, classes="divider")
-
         yield Container(
-            Static(f"~/{self.project_name} [dim](main*)[/dim]", id="status-left"),
-            Static("no sandbox", id="status-middle"),
-            Static("[dim]/model[/dim] Auto (Archon Manager)", id="status-right"),
+            Static(f"ready", id="status-left"),
+            Static(f"{self.project_name}", id="status-middle"),
+            Static("model: claude-3.5-sonnet | mode: chat", id="status-right"),
             id="status-row",
         )
 
@@ -306,8 +335,10 @@ class ArchonApp(App):
         self.project_path = project_path
         self.session = session
         self.manager = manager
+        self.initial_goal = getattr(session, "initial_goal", None)
         self._file_count = self._count_files()
         self._history: list[dict] = []
+        self._pending_spec: Optional[dict] = None
 
     def _count_files(self) -> int:
         count = 0
@@ -333,19 +364,41 @@ class ArchonApp(App):
         self.query_one("#chat-input", Input).focus()
 
         self._add_system_message(
-            "[bold white]i[/bold white] Update successful! The new version will be used on your next run.\n"
-            "✦ I am Archon CLI, your interactive software engineering assistant. I can help you with:\n\n"
-            "  * [bold white]Codebase Investigation:[/bold white] Mapping architecture and diagnosing complex bugs using\n"
-            "    [#af87ff]codebase_investigator[/].\n"
-            "  * [bold white]Feature Implementation:[/bold white] Taking tasks from research and strategy through to verified\n"
-            "    execution.\n"
-            "  * [bold white]Application Prototyping:[/bold white] Building functional, modern prototypes (Web, API, CLI, Mobile,\n"
-            "    Games).\n"
-            "  * [bold white]Specialized Tasks:[/bold white] Activating expert skills for things like AWS/Azure/Terraform diagrams,\n"
-            "    security audits, performance optimization, and more.\n"
-            "  * [bold white]System Help:[/bold white] Explaining CLI features and configuration via [#af87ff]cli_help[/].\n\n"
-            "How can I help you with your project today?\n"
+            "Welcome to Archon 👋\n\n"
+            "Your AI software engineer.\n\n"
+            "Examples:\n"
+            "• create a todo app\n"
+            "• build a react dashboard\n"
+            "• add authentication\n"
+            "• show project status\n\n"
+            "Use [bold cyan]/model[/bold cyan] to switch AI models."
         )
+
+        # Initialize status bar
+        self._update_status_bar()
+
+        if self.initial_goal:
+            # Short delay to let the UI render first
+            self.run_worker(self._process_initial_goal())
+
+    def _update_status_bar(self):
+        try:
+            model_info = "unknown"
+            if self.manager and hasattr(self.manager, "model_router"):
+                model_info = self.manager.model_router.current_model
+
+            status_right = self.query_one("#status-right", Static)
+            status_right.update(f"model: {model_info} | mode: chat")
+        except Exception:
+            pass
+
+    async def _process_initial_goal(self) -> None:
+        await asyncio.sleep(0.5)
+        if self.initial_goal == "/model":
+            self._handle_slash("/model")
+        else:
+            self._add_message("user", self.initial_goal)
+            await self._process_request(self.initial_goal)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -354,27 +407,84 @@ class ArchonApp(App):
 
         event.input.value = ""
 
-        if text.startswith("/") or text.lower() in ("exit", "quit"):
-            self._handle_slash(text.lower())
+        if text.startswith("/") or text.lower() in ("exit", "quit", "help"):
+            self._handle_slash(text)
             return
 
         self._add_message("user", text)
+
+        if self._pending_spec:
+            self._handle_confirmation(text)
+            return
+
         self.run_worker(self._process_request(text), exclusive=False)
 
-    def _handle_slash(self, cmd: str) -> None:
-        cmd = cmd.strip()
+    def _handle_confirmation(self, text: str) -> None:
+        cmd = text.lower()
+        if cmd in ("y", "yes", "go", "do it"):
+            spec = self._pending_spec
+            self._pending_spec = None
+            self._add_system_message("\n[bold green]Proceeding with execution...[/bold green]")
+            self.run_worker(self._execute_spec_in_tui(spec), exclusive=False)
+        elif cmd in ("n", "no", "stop", "cancel"):
+            self._pending_spec = None
+            self._add_system_message("[yellow]Execution cancelled. Return to Chat.[/yellow]")
+        else:
+            self._add_system_message("Please answer 'y' or 'n'. Proceed with execution?")
 
-        if cmd in ("/exit", "/quit", "exit", "quit"):
+    def _handle_slash(self, cmd: str) -> None:
+        cmd_clean = cmd.strip().lower()
+
+        if cmd_clean in ("/exit", "/quit", "exit", "quit"):
             self.exit()
             return
 
-        if cmd == "/clear":
+        if cmd_clean == "/clear":
             self.action_clear_history()
             return
 
-        self._add_system_message(
-            f"Unknown command: [bold]{cmd}[/bold]  — Try [bold]? for shortcuts[/bold]"
-        )
+        if cmd_clean == "/model":
+            self._show_inline_model_selector()
+            return
+
+        if cmd_clean in ("/help", "help"):
+            self._add_system_message(
+                "Archon Help\n\n"
+                "Available commands:\n"
+                "• [bold cyan]/model[/bold cyan] - Switch AI models\n"
+                "• [bold cyan]/clear[/bold cyan] - Clear chat history\n"
+                "• [bold cyan]/help[/bold cyan] - Show this help message\n"
+                "• [bold cyan]/exit[/bold cyan] - Exit Archon\n"
+            )
+            return
+
+        # If it's not a known slash command but starts with /, treat as chat
+        self._add_message("user", cmd)
+        self.run_worker(self._process_request(cmd))
+
+    def _show_inline_model_selector(self):
+        if not self.manager or not hasattr(self.manager, "model_router"):
+            self._add_system_message("[red]Model router not available.[/red]")
+            return
+
+        router = self.manager.model_router
+        options = [
+            {"id": "claude-3-5-sonnet", "name": "Claude 3.5 Sonnet"},
+            {"id": "gpt-4o", "name": "GPT-4o"},
+            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
+            {"id": "deepseek-chat", "name": "DeepSeek Chat"},
+        ]
+
+        def on_select(model_id):
+            router.set_model(model_id)
+            status = router.get_status()
+            self._add_system_message(f"✓ {status}")
+            self._update_status_bar()
+
+        selector = InlineModelSelector(options, on_select)
+        history = self.query_one("#chat-history", ChatHistory)
+        history.mount(selector)
+        history.scroll_end()
 
     async def _process_request(self, user_input: str) -> None:
         thinking = self.query_one("#thinking", ThinkingIndicator)
@@ -390,14 +500,92 @@ class ArchonApp(App):
                         [{"role": m["role"], "content": m["content"]} for m in self._history],
                     )
                     content = response.get("message", "No response.")
+                    action = response.get("action")
+                    spec = response.get("spec")
                 except Exception as e:
                     content = f"[red]Error:[/red] {e}"
+                    action = None
+                    spec = None
             else:
                 await asyncio.sleep(1.2)
                 content = self._demo_response(user_input)
+                action = None
+                spec = None
 
             self._add_message("assistant", content)
 
+            if action == "select_model":
+                self._pending_model_options = response.get("options")
+            elif action == "execute_task" and spec:
+                if self.session.mode == ExecutionMode.FAST:
+                    self._add_system_message(
+                        "[bold color(226)]⚡ Fast mode — executing immediately...[/bold color(226)]"
+                    )
+                    self.run_worker(self._execute_spec_in_tui(spec), exclusive=False)
+                else:
+                    self._pending_spec = spec
+                    self._add_system_message("\nProceed with execution? (y/n)")
+
+        finally:
+            thinking.remove_class("active")
+            self.query_one("#chat-input", Input).focus()
+
+    async def _execute_spec_in_tui(self, spec: dict) -> None:
+        thinking = self.query_one("#thinking", ThinkingIndicator)
+        thinking.add_class("active")
+
+        agent_statuses = {}
+        for t in spec.get("tasks", []):
+            agent = t.get("agent", "UnknownAgent")
+            if agent not in agent_statuses:
+                agent_statuses[agent] = "waiting"
+
+        def get_status_text():
+            lines = ["[bold]## Execution Status[/bold]"]
+            for ag, st in agent_statuses.items():
+                if st == "completed":
+                    color = "green"
+                elif st == "running":
+                    color = "cyan"
+                else:
+                    color = "dim"
+                lines.append(f"{ag.ljust(19)} → [{color}]{st}[/{color}]")
+            return "\n".join(lines)
+
+        history = self.query_one("#chat-history", ChatHistory)
+        table_bubble = MessageBubble(role="assistant", content=get_status_text())
+        history.mount(table_bubble)
+        history.scroll_end(animate=False)
+
+        try:
+            async for update in self.manager.execute_plan(spec):
+                if update["type"] == "task_started":
+                    agent_statuses[update["agent"]] = "running"
+                    table_bubble.query_one(".bubble-content", Static).update(get_status_text())
+                elif update["type"] == "task_completed":
+                    agent_statuses[update["agent"]] = "completed"
+                    table_bubble.query_one(".bubble-content", Static).update(get_status_text())
+                elif update["type"] == "task_failed":
+                    self._add_system_message(
+                        f"❌ [bold red]Task failed:[/bold red] {update['error']}"
+                    )
+                elif update["type"] == "deliberation_needed":
+                    self._add_system_message(f"⚠️ Conflict detected: {update['conflict_type']}")
+                elif update["type"] == "conflict_resolved":
+                    self._add_system_message(
+                        f"⚠️ [bold yellow]Conflict detected:[/bold yellow]\n"
+                        f"File: {update['file']}\n"
+                        f"Owned by: {update['owner']}\n"
+                        f"Attempted modification by: {update['attempted']}\n"
+                        f"Arbitrator evaluating versions...\n"
+                        f"[bold green]✔ Selected version: {update['winner']}[/bold green]"
+                    )
+                elif update["type"] == "execution_summary":
+                    self._add_system_message(f"[bold]Execution Summary[/bold]\n{update['summary']}")
+
+            self._add_system_message("✨ [bold magenta]Plan execution complete![/bold magenta]")
+        except Exception as e:
+            self._add_system_message(f"❌ [bold red]Execution error:[/bold red] {e}")
         finally:
             thinking.remove_class("active")
             self.query_one("#chat-input", Input).focus()
