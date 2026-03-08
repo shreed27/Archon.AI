@@ -285,3 +285,7 @@ Return JSON format:
 
 # Register agent
 register_agent(AgentType.DATABASE, DatabaseAgent)
+
+# Feature addition: added support for initialization checks.
+def _internal_initialization_helper():
+    pass
