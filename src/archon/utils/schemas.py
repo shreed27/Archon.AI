@@ -34,6 +34,41 @@ class AgentType(str, Enum):
     PERFORMANCE = "performance"
     DATA = "data"
     ARCHITECT = "architect"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_str(cls, value: str) -> "AgentType":
+        """
+        Normalize agent name and return AgentType enum.
+        Handles variations like 'frontend_agent', 'FRONTEND', etc.
+        """
+        if not value:
+            return cls.INTEGRATION
+
+        name = value.lower().strip()
+
+        # Remove common suffixes
+        if name.endswith("_agent"):
+            name = name[: -len("_agent")]
+        elif name.endswith("agent"):
+            name = name[: -len("agent")]
+
+        mapping = {
+            "backend": cls.BACKEND,
+            "frontend": cls.FRONTEND,
+            "devops": cls.DEVOPS,
+            "security": cls.SECURITY,
+            "testing": cls.TESTING,
+            "integration": cls.INTEGRATION,
+            "documentation": cls.DOCUMENTATION,
+            "git": cls.GIT,
+            "database": cls.DATABASE,
+            "performance": cls.PERFORMANCE,
+            "data": cls.DATA,
+            "architect": cls.ARCHITECT,
+        }
+
+        return mapping.get(name, cls.INTEGRATION)  # Fallback to IntegrationAgent
 
 
 class Task(BaseModel):
@@ -69,6 +104,7 @@ class TaskResult(BaseModel):
     success: bool
     output: Any  # Can be dict or string
     files_modified: List[FileChange] = Field(default_factory=list)
+    files_created: List[str] = Field(default_factory=list)
     quality_score: float
     execution_time_ms: int
     model_used: Optional[str] = None
@@ -76,6 +112,7 @@ class TaskResult(BaseModel):
     needs_deliberation: bool = False
     architecture_changes: Optional[Dict] = None
     error: Optional[str] = None
+    file_conflicts: List[Dict[str, str]] = Field(default_factory=list)
 
 
 class QualityCheck(BaseModel):
