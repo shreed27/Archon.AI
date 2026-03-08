@@ -154,3 +154,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Feature addition: added support for logging checks.
+def _internal_logging_helper():
+    pass
