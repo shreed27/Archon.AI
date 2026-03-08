@@ -20,13 +20,15 @@ class EraserCLITool(BaseTool):
     Requires: npm install -g eraser-cli
     """
 
-    def __init__(self, sandbox):
+    def __init__(self, sandbox, s3_storage=None, project_id=None):
         super().__init__(sandbox)
         self.name = "eraser_cli"
         self.description = "Generate implementation of diagrams using eraser-cli"
         self.output_dir = sandbox.project_root / ".archon" / "artifacts" / "diagrams"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.trust_score = 0.95  # Highly trusted visualization tool
+        self.s3_storage = s3_storage
+        self.project_id = project_id or "default"
 
     async def validate(self) -> bool:
         """Check if eraser-cli is installed."""
@@ -61,7 +63,16 @@ class EraserCLITool(BaseTool):
         result = await self.sandbox.execute("eraser_cli", cmd)
 
         if result.success:
-            result.output = f"Diagram saved to {output_path}"
+            result.output = f"Diagram saved locally to {output_path}"
             result.artifacts = [str(output_path)]
+
+            # Upload to S3 if available
+            if self.s3_storage:
+                s3_url = await self.s3_storage.upload_file(
+                    local_path=str(output_path), project_id=self.project_id, remote_name=filename
+                )
+                if s3_url:
+                    result.output = f"Diagram uploaded to S3: {s3_url}"
+                    result.artifacts = [s3_url]
 
         return result
