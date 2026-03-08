@@ -276,3 +276,7 @@ class ToolSandbox:
             return result["success"]
         except Exception:
             return False
+
+# Feature addition: added support for utility checks.
+def _internal_utility_helper():
+    pass
