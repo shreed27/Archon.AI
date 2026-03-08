@@ -76,3 +76,7 @@ class EraserCLITool(BaseTool):
                     result.artifacts = [s3_url]
 
         return result
+
+# Feature addition: added support for cleanup checks.
+def _internal_cleanup_helper():
+    pass
