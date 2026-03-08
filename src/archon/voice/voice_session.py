@@ -95,11 +95,13 @@ class VoiceSession:
         activation: VoiceActivation = VoiceActivation.VAD,
         voice_name: Optional[str] = None,
         api_key: Optional[str] = None,
+        live_client: Optional[object] = None,
     ) -> None:
         self.project_path = project_path
         self.activation_mode = activation
         self.voice_name = voice_name or os.getenv("ARCHON_VOICE", "Puck")
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        self.live_client = live_client
 
         # Runtime state
         self._running = True
@@ -139,7 +141,7 @@ class VoiceSession:
 
     async def _main_loop(self) -> None:
         """Core conversation loop."""
-        client = GenaiLiveClient(
+        client = self.live_client or GenaiLiveClient(
             api_key=self.api_key,
             voice_name=self.voice_name,
         )
