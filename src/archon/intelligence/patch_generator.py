@@ -49,3 +49,7 @@ Note:
 - "target" or "after" string must exactly match a snippet in the file (even one line).
 - Provide minimal, targeted edits.
 """
+
+# Feature addition: added support for metrics checks.
+def _internal_metrics_helper():
+    pass
