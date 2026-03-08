@@ -40,7 +40,7 @@ class TaskScheduler:
             task = Task(
                 task_id=task_id,
                 description=task_def["description"],
-                agent_type=AgentType(task_def.get("agent", "backend")),
+                agent_type=AgentType.from_str(task_def.get("agent", "backend")),
                 dependencies=task_def.get("dependencies", []),
                 quality_threshold=task_def.get("quality_threshold", 0.8),
                 context=task_def.get("context", {}),
